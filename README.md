@@ -1,69 +1,53 @@
-# MTProxy Panel v2.0
+# MTProxy Panel v2.1 Professional
 
-Complete MTProxy (Telegram Proxy) installer with **CLI Menu + Web UI** for Ubuntu.
+by **@ali_sudo_of**
 
-**by @ali_sudo_of**
+Full-featured MTProxy manager for Ubuntu with modern **Web UI** + multi-client support.
 
 ## Features
 
-- Full interactive CLI menu
-- **Web Panel** on port `8880` (dark modern UI)
-- Support for **Sponsor Channel (AD Tag)** from `@MTProxybot`
-- Default port **443**
-- Start / Stop / Restart / Status / Change settings
-- Auto secret generation + connection links (dd / ee)
-- Systemd services for both proxy and web panel
+- Beautiful responsive Web Panel (Mobile + Desktop)
+- **Multi-Client** system (create unlimited clients with separate secrets)
+- AD Tag / Sponsor Channel support (`@MTProxybot`)
+- Auto rebuild & update (no questions if already installed)
+- Default port 443
+- Start / Stop / Restart / Links / Settings from web
+- Dark professional UI
 
-## One-line Install
+## Install / Update (one command)
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh)
 ```
 
-After install you will see:
+- If already installed → automatically rebuilds & updates without asking
+- Fresh install → asks port + optional AD Tag
 
-- Connection links
-- Web Panel URL → `http://YOUR_IP:8880`
-- Default password → `admin`
+## After Install
 
-## Web Panel
+- Web Panel: `http://YOUR_IP:8880`
+- Default password: `admin`
 
-Open `http://YOUR_SERVER_IP:8880`
-
-Login with password `admin` (change it from the panel).
-
-From the web panel you can:
-- See live status
-- Start / Stop / Restart
-- Change port
-- Set / change **AD Tag** (Sponsor Channel)
-- View ready-to-use links
+From the panel you can:
+- Create new clients (each gets its own secret + links)
+- Enable / Disable clients
+- Change port & AD Tag
+- View all connection links
 - Change panel password
-- Uninstall
 
-## AD Tag (Sponsor Channel)
+## AD Tag (Sponsor)
 
-1. Open Telegram and talk to **@MTProxybot**
-2. Create a proxy / get your tag
-3. Paste the tag in the Web Panel or during CLI install
-
-## Manual Commands
-
-```bash
-systemctl status mtproxy
-systemctl status mtproxy-web
-journalctl -u mtproxy -f
-```
+1. Talk to [@MTProxybot](https://t.me/MTProxybot) on Telegram
+2. Get your tag
+3. Paste it in Web Panel → Global Settings
 
 ## Uninstall
 
-From CLI menu (option 2) or:
+From Web Panel (Danger Zone) or:
 
 ```bash
 systemctl stop mtproxy mtproxy-web
-systemctl disable mtproxy mtproxy-web
-rm -f /etc/systemd/system/mtproxy.service /etc/systemd/system/mtproxy-web.service
 rm -rf /opt/mtproxy /opt/mtproxy-panel
-userdel mtproxy
+rm -f /etc/systemd/system/mtproxy*.service
 systemctl daemon-reload
 ```
