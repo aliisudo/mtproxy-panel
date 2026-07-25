@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-# MTProxy Web Panel - by @ali_sudo_of
+# MTProxy Professional Web Panel
+# by @ali_sudo_of
 
 import os
+import json
 import subprocess
 import secrets
-import hashlib
+import time
 from functools import wraps
+from datetime import datetime
 from flask import Flask, render_template_string, request, redirect, url_for, session, flash, jsonify
 
 app = Flask(__name__)
@@ -13,13 +16,13 @@ app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
 INSTALL_DIR = "/opt/mtproxy"
 BINARY = f"{INSTALL_DIR}/mtproto-proxy"
-SECRET_FILE = f"{INSTALL_DIR}/secret.txt"
+SECRET_FILE = f"{INSTALL_DIR}/secret.txt"          # main secret (legacy)
+CLIENTS_FILE = f"{INSTALL_DIR}/clients.json"       # multi clients
 PORT_FILE = f"{INSTALL_DIR}/port.txt"
 ADTAG_FILE = f"{INSTALL_DIR}/adtag.txt"
+PANEL_PASS_FILE = f"{INSTALL_DIR}/panel_pass.txt"
 SERVICE = "mtproxy"
-PANEL_PASS_FILE = "/opt/mtproxy/panel_pass.txt"
 
-# Simple password (default: admin / change it)
 def get_panel_password():
     if os.path.exists(PANEL_PASS_FILE):
         with open(PANEL_PASS_FILE) as f:
@@ -34,10 +37,10 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def run_cmd(cmd):
+def run_cmd(cmd, timeout=60):
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-        return result.returncode == 0, result.stdout + result.stderr
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        return r.returncode == 0, (r.stdout or "") + (r.stderr or "")
     except Exception as e:
         return False, str(e)
 
@@ -48,35 +51,55 @@ def get_status():
     if not is_installed():
         return "not_installed"
     ok, out = run_cmd(f"systemctl is-active {SERVICE}")
-    return "active" if "active" in out else "inactive"
+    return "active" if "active" in out.strip() else "inactive"
 
 def get_port():
     if os.path.exists(PORT_FILE):
-        with open(PORT_FILE) as f:
-            return f.read().strip()
+        return open(PORT_FILE).read().strip()
     return "443"
-
-def get_secret():
-    if os.path.exists(SECRET_FILE):
-        with open(SECRET_FILE) as f:
-            return f.read().strip()
-    return ""
 
 def get_adtag():
     if os.path.exists(ADTAG_FILE):
-        with open(ADTAG_FILE) as f:
-            return f.read().strip()
+        return open(ADTAG_FILE).read().strip()
     return ""
 
 def get_public_ip():
     ok, out = run_cmd("curl -s --max-time 4 https://api.ipify.org || curl -s --max-time 4 https://ifconfig.me || echo ''")
     return out.strip() if ok else ""
 
-def rebuild_service(port, secret, adtag=""):
-    """Recreate systemd service with current settings"""
+def load_clients():
+    if os.path.exists(CLIENTS_FILE):
+        try:
+            with open(CLIENTS_FILE) as f:
+                return json.load(f)
+        except:
+            pass
+    # migrate old single secret
+    if os.path.exists(SECRET_FILE):
+        s = open(SECRET_FILE).read().strip()
+        if s:
+            clients = [{"id": "main", "name": "Main Client", "secret": s, "enabled": True, "created": datetime.now().isoformat()}]
+            save_clients(clients)
+            return clients
+    return []
+
+def save_clients(clients):
+    os.makedirs(INSTALL_DIR, exist_ok=True)
+    with open(CLIENTS_FILE, "w") as f:
+        json.dump(clients, f, indent=2)
+
+def rebuild_service():
+    """Rebuild systemd unit with all enabled secrets + adtag"""
+    port = get_port()
+    adtag = get_adtag()
+    clients = [c for c in load_clients() if c.get("enabled", True)]
+    if not clients:
+        return False, "No clients"
+
+    secrets_args = " ".join([f"-S {c['secret']}" for c in clients])
     adtag_arg = f" -P {adtag}" if adtag else ""
-    # Always run as root for reliability on port 443
-    service_content = f"""[Unit]
+
+    content = f"""[Unit]
 Description=Telegram MTProxy
 After=network-online.target
 Wants=network-online.target
@@ -84,7 +107,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory={INSTALL_DIR}
-ExecStart={BINARY} -u nobody -p 8888 -H {port} -S {secret}{adtag_arg} --aes-pwd {INSTALL_DIR}/proxy-secret {INSTALL_DIR}/proxy-multi.conf -M 1
+ExecStart={BINARY} -u nobody -p 8888 -H {port} {secrets_args}{adtag_arg} --aes-pwd {INSTALL_DIR}/proxy-secret {INSTALL_DIR}/proxy-multi.conf -M 1
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
@@ -95,233 +118,439 @@ StandardError=journal
 WantedBy=multi-user.target
 """
     with open(f"/etc/systemd/system/{SERVICE}.service", "w") as f:
-        f.write(service_content)
+        f.write(content)
     run_cmd("systemctl daemon-reload")
     run_cmd(f"systemctl enable {SERVICE}")
+    return True, "ok"
 
-# ==================== HTML Templates ====================
+# ==================== TEMPLATES ====================
 
-LOGIN_HTML = """
+BASE_CSS = """
+:root {
+  --bg: #0b0b0f;
+  --card: #14141c;
+  --border: #252532;
+  --text: #e8e8f0;
+  --muted: #8b8b9e;
+  --primary: #6c5ce7;
+  --primary-hover: #7f71f0;
+  --success: #00b894;
+  --danger: #ff6b6b;
+  --warning: #fdcb6e;
+  --radius: 14px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  line-height: 1.5;
+}
+a { color: inherit; text-decoration: none; }
+.container { max-width: 960px; margin: 0 auto; padding: 16px; }
+.header {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.header h1 { font-size: 1.15rem; font-weight: 700; }
+.header .sub { font-size: 0.75rem; color: var(--muted); }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card h2 { font-size: 1rem; margin-bottom: 14px; font-weight: 600; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.active { background: rgba(0,184,148,0.15); color: var(--success); }
+.badge.inactive { background: rgba(255,107,107,0.15); color: var(--danger); }
+.badge.not_installed { background: rgba(253,203,110,0.15); color: var(--warning); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.info-box {
+  background: #0e0e14;
+  border-radius: 10px;
+  padding: 12px;
+}
+.info-box label { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; }
+.info-box .val { font-family: ui-monospace, monospace; font-size: 0.9rem; word-break: break-all; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-success { background: rgba(0,184,148,0.2); color: var(--success); }
+.btn-danger { background: rgba(255,107,107,0.2); color: var(--danger); }
+.btn-warning { background: rgba(253,203,110,0.2); color: var(--warning); }
+.btn-ghost { background: #1e1e28; color: var(--muted); }
+.btn-block { width: 100%; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+input, select, textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #0e0e14;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+input:focus, select:focus { outline: none; border-color: var(--primary); }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 5px; }
+.flash {
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  font-size: 0.9rem;
+}
+.flash.success { background: rgba(0,184,148,0.15); color: var(--success); }
+.flash.error { background: rgba(255,107,107,0.15); color: var(--danger); }
+.flash.info { background: rgba(108,92,231,0.15); color: #a29bfe; }
+.table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.table th { text-align: left; color: var(--muted); font-weight: 500; padding: 8px 6px; border-bottom: 1px solid var(--border); font-size: 0.75rem; }
+.table td { padding: 12px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.table tr:last-child td { border-bottom: none; }
+.link-box {
+  background: #0e0e14;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+  color: #a29bfe;
+}
+.link-box label { display: block; color: var(--muted); font-size: 0.7rem; margin-bottom: 4px; font-family: system-ui; }
+.mobile-nav { display: none; }
+@media (max-width: 640px) {
+  .header h1 { font-size: 1rem; }
+  .container { padding: 12px; }
+  .card { padding: 16px; }
+  .actions { flex-direction: column; }
+  .btn { width: 100%; }
+  .table { font-size: 0.8rem; }
+  .hide-mobile { display: none; }
+}
+"""
+
+LOGIN_HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MTProxy Panel - Login</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #0f0f13; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .card { background: #1a1a22; border: 1px solid #2a2a35; border-radius: 16px; padding: 40px; width: 100%; max-width: 380px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
-        h1 { text-align: center; margin-bottom: 8px; font-size: 1.6rem; color: #fff; }
-        .sub { text-align: center; color: #888; margin-bottom: 30px; font-size: 0.9rem; }
-        input { width: 100%; padding: 14px 16px; border-radius: 10px; border: 1px solid #333; background: #121218; color: #fff; font-size: 1rem; margin-bottom: 16px; }
-        input:focus { outline: none; border-color: #5b5bff; }
-        button { width: 100%; padding: 14px; border: none; border-radius: 10px; background: linear-gradient(135deg, #5b5bff, #7b5bff); color: white; font-size: 1rem; font-weight: 600; cursor: pointer; }
-        button:hover { opacity: 0.9; }
-        .error { background: #3a1a1a; color: #ff6b6b; padding: 12px; border-radius: 8px; margin-bottom: 16px; text-align: center; font-size: 0.9rem; }
-        .footer { text-align: center; margin-top: 24px; color: #555; font-size: 0.8rem; }
-    </style>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTProxy Panel</title>
+<style>{BASE_CSS}
+.login-wrap {{ min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
+.login-card {{ width: 100%; max-width: 380px; }}
+</style>
 </head>
 <body>
-    <div class="card">
-        <h1>MTProxy Panel</h1>
-        <div class="sub">by @ali_sudo_of</div>
-        {% if error %}<div class="error">{{ error }}</div>{% endif %}
-        <form method="POST">
-            <input type="password" name="password" placeholder="Password" required autofocus>
-            <button type="submit">Login</button>
-        </form>
-        <div class="footer">Default password: admin</div>
-    </div>
+<div class="login-wrap">
+  <div class="card login-card">
+    <h1 style="text-align:center;margin-bottom:4px">MTProxy Panel</h1>
+    <p style="text-align:center;color:var(--muted);font-size:0.85rem;margin-bottom:24px">by @ali_sudo_of</p>
+    {{% if error %}}<div class="flash error">{{{{ error }}}}</div>{{% endif %}}
+    <form method="POST">
+      <div class="form-group">
+        <input type="password" name="password" placeholder="Password" required autofocus>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">Login</button>
+    </form>
+    <p style="text-align:center;color:var(--muted);font-size:0.75rem;margin-top:18px">Default: admin</p>
+  </div>
+</div>
 </body>
 </html>
 """
 
-DASHBOARD_HTML = """
+DASHBOARD_HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MTProxy Panel</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #0f0f13; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
-        .header { background: #1a1a22; border-bottom: 1px solid #2a2a35; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 1.3rem; color: #fff; }
-        .header .brand { color: #888; font-size: 0.85rem; }
-        .container { max-width: 900px; margin: 0 auto; padding: 24px; }
-        .status-card { background: #1a1a22; border: 1px solid #2a2a35; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
-        .status-row { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; }
-        .badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 600; }
-        .badge.active { background: #14301f; color: #3dd68c; }
-        .badge.inactive { background: #301414; color: #ff6b6b; }
-        .badge.not_installed { background: #302814; color: #ffb84d; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
-        .info-item { background: #121218; padding: 12px 16px; border-radius: 10px; }
-        .info-item label { display: block; color: #888; font-size: 0.75rem; margin-bottom: 4px; }
-        .info-item value { font-family: monospace; font-size: 0.95rem; word-break: break-all; }
-        .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-        .btn { padding: 10px 18px; border: none; border-radius: 10px; font-size: 0.9rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
-        .btn-green { background: #1a3a2a; color: #3dd68c; }
-        .btn-red { background: #3a1a1a; color: #ff6b6b; }
-        .btn-blue { background: #1a1a3a; color: #7b8cff; }
-        .btn-orange { background: #3a2a1a; color: #ffb84d; }
-        .btn-gray { background: #2a2a35; color: #ccc; }
-        .btn:hover { opacity: 0.85; }
-        .section { background: #1a1a22; border: 1px solid #2a2a35; border-radius: 14px; padding: 24px; margin-bottom: 20px; }
-        .section h2 { font-size: 1.1rem; margin-bottom: 16px; color: #fff; }
-        .form-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-        input, select { flex: 1; min-width: 160px; padding: 12px 14px; border-radius: 10px; border: 1px solid #333; background: #121218; color: #fff; font-size: 0.95rem; }
-        input:focus { outline: none; border-color: #5b5bff; }
-        .links { background: #121218; border-radius: 10px; padding: 16px; margin-top: 12px; }
-        .link-item { margin-bottom: 12px; }
-        .link-item label { display: block; color: #888; font-size: 0.8rem; margin-bottom: 4px; }
-        .link-item code { display: block; background: #0a0a0e; padding: 10px; border-radius: 8px; font-size: 0.85rem; word-break: break-all; color: #7b8cff; }
-        .flash { padding: 12px 16px; border-radius: 10px; margin-bottom: 16px; }
-        .flash.success { background: #14301f; color: #3dd68c; }
-        .flash.error { background: #301414; color: #ff6b6b; }
-        .flash.info { background: #1a1a3a; color: #7b8cff; }
-        .logout { color: #888; text-decoration: none; font-size: 0.9rem; }
-        .logout:hover { color: #fff; }
-    </style>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>MTProxy Panel</title>
+<style>{BASE_CSS}</style>
 </head>
 <body>
-    <div class="header">
-        <div>
-            <h1>MTProxy Panel</h1>
-            <div class="brand">by @ali_sudo_of</div>
-        </div>
-        <a href="{{ url_for('logout') }}" class="logout">Logout</a>
+<div class="header">
+  <div>
+    <h1>MTProxy Panel</h1>
+    <div class="sub">by @ali_sudo_of</div>
+  </div>
+  <a href="{{{{ url_for('logout') }}}}" style="color:var(--muted);font-size:0.85rem">Logout</a>
+</div>
+
+<div class="container">
+  {{% with messages = get_flashed_messages(with_categories=true) %}}
+    {{% for cat, msg in messages %}}
+      <div class="flash {{{{ cat }}}}">{{{{ msg }}}}</div>
+    {{% endfor %}}
+  {{% endwith %}}
+
+  <!-- Status -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      {{% if status == 'active' %}}
+        <span class="badge active"><span class="dot"></span> Running</span>
+      {{% elif status == 'inactive' %}}
+        <span class="badge inactive"><span class="dot"></span> Stopped</span>
+      {{% else %}}
+        <span class="badge not_installed"><span class="dot"></span> Not Installed</span>
+      {{% endif %}}
+      <div class="actions" style="margin:0">
+        {{% if status == 'active' %}}
+          <form method="POST" action="{{{{ url_for('action', act='stop') }}}}" style="display:inline"><button class="btn btn-danger" type="submit">Stop</button></form>
+          <form method="POST" action="{{{{ url_for('action', act='restart') }}}}" style="display:inline"><button class="btn btn-warning" type="submit">Restart</button></form>
+        {{% elif status == 'inactive' %}}
+          <form method="POST" action="{{{{ url_for('action', act='start') }}}}" style="display:inline"><button class="btn btn-success" type="submit">Start</button></form>
+        {{% endif %}}
+        <a href="{{{{ url_for('dashboard') }}}}" class="btn btn-ghost">Refresh</a>
+      </div>
     </div>
 
-    <div class="container">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% for category, message in messages %}
-                <div class="flash {{ category }}">{{ message }}</div>
-            {% endfor %}
-        {% endwith %}
-
-        <div class="status-card">
-            <div class="status-row">
-                {% if status == 'active' %}
-                    <span class="badge active"><span class="dot"></span> Running</span>
-                {% elif status == 'inactive' %}
-                    <span class="badge inactive"><span class="dot"></span> Stopped</span>
-                {% else %}
-                    <span class="badge not_installed"><span class="dot"></span> Not Installed</span>
-                {% endif %}
-            </div>
-
-            {% if status != 'not_installed' %}
-            <div class="info-grid">
-                <div class="info-item">
-                    <label>Server IP</label>
-                    <value>{{ ip or 'N/A' }}</value>
-                </div>
-                <div class="info-item">
-                    <label>Port</label>
-                    <value>{{ port }}</value>
-                </div>
-                <div class="info-item">
-                    <label>Secret</label>
-                    <value>{{ secret[:16] }}...</value>
-                </div>
-                <div class="info-item">
-                    <label>AD Tag (Sponsor)</label>
-                    <value>{{ adtag or 'Not set' }}</value>
-                </div>
-            </div>
-
-            <div class="actions">
-                {% if status == 'active' %}
-                    <form method="POST" action="{{ url_for('action', act='stop') }}" style="display:inline">
-                        <button class="btn btn-red" type="submit">Stop</button>
-                    </form>
-                    <form method="POST" action="{{ url_for('action', act='restart') }}" style="display:inline">
-                        <button class="btn btn-orange" type="submit">Restart</button>
-                    </form>
-                {% else %}
-                    <form method="POST" action="{{ url_for('action', act='start') }}" style="display:inline">
-                        <button class="btn btn-green" type="submit">Start</button>
-                    </form>
-                {% endif %}
-                <a href="{{ url_for('dashboard') }}" class="btn btn-gray">Refresh</a>
-            </div>
-            {% endif %}
-        </div>
-
-        {% if status != 'not_installed' %}
-        <div class="section">
-            <h2>Connection Links</h2>
-            <div class="links">
-                <div class="link-item">
-                    <label>Simple (dd) - Recommended</label>
-                    <code>tg://proxy?server={{ ip }}&port={{ port }}&secret=dd{{ secret }}</code>
-                </div>
-                <div class="link-item">
-                    <label>Fake TLS (ee)</label>
-                    <code>tg://proxy?server={{ ip }}&port={{ port }}&secret=ee{{ secret }}</code>
-                </div>
-                <div class="link-item">
-                    <label>HTTPS Share Link</label>
-                    <code>https://t.me/proxy?server={{ ip }}&port={{ port }}&secret=dd{{ secret }}</code>
-                </div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Settings</h2>
-            <form method="POST" action="{{ url_for('save_settings') }}">
-                <div class="form-row">
-                    <input type="number" name="port" value="{{ port }}" placeholder="Port" min="1" max="65535" required>
-                    <input type="text" name="adtag" value="{{ adtag }}" placeholder="AD Tag (from @MTProxybot) - optional">
-                </div>
-                <div class="form-row">
-                    <button class="btn btn-blue" type="submit">Save & Restart</button>
-                </div>
-            </form>
-            <p style="color:#888;font-size:0.85rem;margin-top:12px;">
-                Get your AD Tag from Telegram bot <b>@MTProxybot</b> → create proxy → get the tag.
-            </p>
-        </div>
-
-        <div class="section">
-            <h2>Danger Zone</h2>
-            <form method="POST" action="{{ url_for('action', act='uninstall') }}" onsubmit="return confirm('Are you sure? This will completely remove MTProxy.')">
-                <button class="btn btn-red" type="submit">Uninstall MTProxy</button>
-            </form>
-        </div>
-        {% else %}
-        <div class="section">
-            <h2>Install MTProxy</h2>
-            <p style="color:#aaa;margin-bottom:16px;">MTProxy is not installed on this server.</p>
-            <form method="POST" action="{{ url_for('action', act='install') }}">
-                <div class="form-row">
-                    <input type="number" name="port" value="443" placeholder="Port" min="1" max="65535">
-                    <input type="text" name="adtag" placeholder="AD Tag (optional)">
-                </div>
-                <button class="btn btn-green" type="submit">Install MTProxy</button>
-            </form>
-        </div>
-        {% endif %}
-
-        <div class="section">
-            <h2>Change Panel Password</h2>
-            <form method="POST" action="{{ url_for('change_password') }}">
-                <div class="form-row">
-                    <input type="password" name="new_password" placeholder="New password" required>
-                    <button class="btn btn-blue" type="submit">Change Password</button>
-                </div>
-            </form>
-        </div>
+    {{% if status != 'not_installed' %}}
+    <div class="grid" style="margin-top:16px">
+      <div class="info-box"><label>IP</label><div class="val">{{{{ ip or 'N/A' }}}}</div></div>
+      <div class="info-box"><label>Port</label><div class="val">{{{{ port }}}}</div></div>
+      <div class="info-box"><label>Clients</label><div class="val">{{{{ clients|length }}}}</div></div>
+      <div class="info-box"><label>AD Tag</label><div class="val">{{{{ adtag[:12] + '...' if adtag else 'Not set' }}}}</div></div>
     </div>
+    {{% endif %}}
+  </div>
+
+  {{% if status != 'not_installed' %}}
+  <!-- Clients -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="margin:0">Clients</h2>
+      <a href="{{{{ url_for('add_client') }}}}" class="btn btn-primary" style="padding:8px 14px;font-size:0.8rem">+ New Client</a>
+    </div>
+
+    {{% if clients %}}
+    <div style="overflow-x:auto">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th class="hide-mobile">Secret</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{% for c in clients %}}
+          <tr>
+            <td><strong>{{{{ c.name }}}}</strong></td>
+            <td class="hide-mobile" style="font-family:monospace;font-size:0.8rem">{{{{ c.secret[:10] }}}}...</td>
+            <td>
+              {{% if c.enabled %}}
+                <span style="color:var(--success);font-size:0.8rem">Enabled</span>
+              {{% else %}}
+                <span style="color:var(--muted);font-size:0.8rem">Disabled</span>
+              {{% endif %}}
+            </td>
+            <td style="text-align:right">
+              <a href="{{{{ url_for('client_detail', cid=c.id) }}}}" class="btn btn-ghost" style="padding:6px 10px;font-size:0.75rem">Manage</a>
+            </td>
+          </tr>
+          {{% endfor %}}
+        </tbody>
+      </table>
+    </div>
+    {{% else %}}
+      <p style="color:var(--muted)">No clients yet. Create one.</p>
+    {{% endif %}}
+  </div>
+
+  <!-- Quick Links for main -->
+  {{% if clients %}}
+  <div class="card">
+    <h2>Quick Links (first client)</h2>
+    {{% set c = clients[0] %}}
+    <div class="link-box">
+      <label>Simple (dd)</label>
+      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ c.secret }}}}
+    </div>
+    <div class="link-box">
+      <label>Fake TLS (ee)</label>
+      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ c.secret }}}}
+    </div>
+  </div>
+  {{% endif %}}
+
+  <!-- Settings -->
+  <div class="card">
+    <h2>Global Settings</h2>
+    <form method="POST" action="{{{{ url_for('save_settings') }}}}">
+      <div class="form-group">
+        <label>Port</label>
+        <input type="number" name="port" value="{{{{ port }}}}" min="1" max="65535" required>
+      </div>
+      <div class="form-group">
+        <label>AD Tag (Sponsor Channel from @MTProxybot)</label>
+        <input type="text" name="adtag" value="{{{{ adtag }}}}" placeholder="Optional 32-char tag">
+      </div>
+      <button class="btn btn-primary" type="submit">Save & Apply</button>
+    </form>
+  </div>
+
+  <!-- Password -->
+  <div class="card">
+    <h2>Panel Password</h2>
+    <form method="POST" action="{{{{ url_for('change_password') }}}}">
+      <div class="form-group">
+        <input type="password" name="new_password" placeholder="New password" required minlength="4">
+      </div>
+      <button class="btn btn-ghost" type="submit">Change Password</button>
+    </form>
+  </div>
+
+  <!-- Danger -->
+  <div class="card">
+    <h2>Danger Zone</h2>
+    <form method="POST" action="{{{{ url_for('action', act='uninstall') }}}}" onsubmit="return confirm('Completely remove MTProxy and all clients?')">
+      <button class="btn btn-danger" type="submit">Uninstall Everything</button>
+    </form>
+  </div>
+  {{% else %}}
+  <div class="card">
+    <h2>Not Installed</h2>
+    <p style="color:var(--muted);margin-bottom:16px">Run the install script on the server first.</p>
+    <code style="display:block;background:#0e0e14;padding:12px;border-radius:10px;font-size:0.8rem">
+bash &lt;(curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh)
+    </code>
+  </div>
+  {{% endif %}}
+</div>
 </body>
 </html>
 """
 
-# ==================== Routes ====================
+CLIENT_HTML = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client - MTProxy</title>
+<style>{BASE_CSS}</style>
+</head>
+<body>
+<div class="header">
+  <div><h1>Client</h1><div class="sub">{{{{ client.name }}}}</div></div>
+  <a href="{{{{ url_for('dashboard') }}}}" style="color:var(--muted);font-size:0.85rem">← Back</a>
+</div>
+<div class="container">
+  {{% with messages = get_flashed_messages(with_categories=true) %}}
+    {{% for cat, msg in messages %}}
+      <div class="flash {{{{ cat }}}}">{{{{ msg }}}}</div>
+    {{% endfor %}}
+  {{% endwith %}}
+
+  <div class="card">
+    <div class="info-box" style="margin-bottom:12px">
+      <label>Secret</label>
+      <div class="val">{{{{ client.secret }}}}</div>
+    </div>
+    <div class="link-box">
+      <label>Simple (dd)</label>
+      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}
+    </div>
+    <div class="link-box">
+      <label>Fake TLS (ee)</label>
+      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ client.secret }}}}
+    </div>
+    <div class="link-box">
+      <label>Share Link</label>
+      https://t.me/proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Edit Client</h2>
+    <form method="POST">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" name="name" value="{{{{ client.name }}}}" required>
+      </div>
+      <div class="form-group">
+        <label>Enabled</label>
+        <select name="enabled">
+          <option value="1" {{% if client.enabled %}}selected{{% endif %}}>Yes</option>
+          <option value="0" {{% if not client.enabled %}}selected{{% endif %}}>No</option>
+        </select>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <button class="btn btn-danger" name="delete" value="1" type="submit" onclick="return confirm('Delete this client?')">Delete</button>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>
+"""
+
+ADD_CLIENT_HTML = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New Client</title>
+<style>{BASE_CSS}</style>
+</head>
+<body>
+<div class="header">
+  <div><h1>New Client</h1></div>
+  <a href="{{{{ url_for('dashboard') }}}}" style="color:var(--muted);font-size:0.85rem">← Back</a>
+</div>
+<div class="container">
+  <div class="card">
+    <form method="POST">
+      <div class="form-group">
+        <label>Client Name</label>
+        <input type="text" name="name" placeholder="e.g. Mobile, Friend, Work" required>
+      </div>
+      <div class="form-group">
+        <label>Custom Secret (optional - leave empty to auto generate)</label>
+        <input type="text" name="secret" placeholder="32 hex chars" pattern="[0-9a-fA-F]{{0,32}}">
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">Create Client</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>
+"""
+
+# ==================== ROUTES ====================
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -340,13 +569,12 @@ def logout():
 @app.route("/")
 @login_required
 def dashboard():
-    status = get_status()
     return render_template_string(DASHBOARD_HTML,
-        status=status,
+        status=get_status(),
         ip=get_public_ip(),
         port=get_port(),
-        secret=get_secret(),
-        adtag=get_adtag()
+        adtag=get_adtag(),
+        clients=load_clients()
     )
 
 @app.route("/action/<act>", methods=["POST"])
@@ -354,26 +582,21 @@ def dashboard():
 def action(act):
     if act == "start":
         ok, msg = run_cmd(f"systemctl start {SERVICE}")
-        flash("Service started" if ok else f"Failed: {msg}", "success" if ok else "error")
+        flash("Started" if ok else msg, "success" if ok else "error")
     elif act == "stop":
         ok, msg = run_cmd(f"systemctl stop {SERVICE}")
-        flash("Service stopped" if ok else f"Failed: {msg}", "success" if ok else "error")
+        flash("Stopped" if ok else msg, "success" if ok else "error")
     elif act == "restart":
         ok, msg = run_cmd(f"systemctl restart {SERVICE}")
-        flash("Service restarted" if ok else f"Failed: {msg}", "success" if ok else "error")
+        flash("Restarted" if ok else msg, "success" if ok else "error")
     elif act == "uninstall":
-        run_cmd(f"systemctl stop {SERVICE}")
-        run_cmd(f"systemctl disable {SERVICE}")
-        run_cmd(f"rm -f /etc/systemd/system/{SERVICE}.service")
+        run_cmd(f"systemctl stop {SERVICE} mtproxy-web")
+        run_cmd(f"systemctl disable {SERVICE} mtproxy-web")
+        run_cmd(f"rm -f /etc/systemd/system/{SERVICE}.service /etc/systemd/system/mtproxy-web.service")
         run_cmd("systemctl daemon-reload")
-        run_cmd(f"rm -rf {INSTALL_DIR}")
+        run_cmd(f"rm -rf {INSTALL_DIR} /opt/mtproxy-panel")
         run_cmd("userdel mtproxy 2>/dev/null || true")
-        flash("MTProxy completely removed", "success")
-    elif act == "install":
-        port = request.form.get("port", "443")
-        adtag = request.form.get("adtag", "").strip()
-        # Call the main installer logic via shell for simplicity
-        flash("Please use the main install script for first-time installation. Web install coming in next update.", "info")
+        flash("Everything removed", "success")
     return redirect(url_for("dashboard"))
 
 @app.route("/settings", methods=["POST"])
@@ -381,24 +604,14 @@ def action(act):
 def save_settings():
     port = request.form.get("port", "443").strip()
     adtag = request.form.get("adtag", "").strip()
-
     if not port.isdigit() or not (1 <= int(port) <= 65535):
         flash("Invalid port", "error")
         return redirect(url_for("dashboard"))
-
-    secret = get_secret()
-    if not secret:
-        flash("Secret not found", "error")
-        return redirect(url_for("dashboard"))
-
-    with open(PORT_FILE, "w") as f:
-        f.write(port)
-    with open(ADTAG_FILE, "w") as f:
-        f.write(adtag)
-
-    rebuild_service(port, secret, adtag)
+    open(PORT_FILE, "w").write(port)
+    open(ADTAG_FILE, "w").write(adtag)
+    ok, _ = rebuild_service()
     run_cmd(f"systemctl restart {SERVICE}")
-    flash("Settings saved and service restarted", "success")
+    flash("Settings applied", "success" if ok else "error")
     return redirect(url_for("dashboard"))
 
 @app.route("/password", methods=["POST"])
@@ -406,14 +619,70 @@ def save_settings():
 def change_password():
     new_pass = request.form.get("new_password", "").strip()
     if len(new_pass) < 4:
-        flash("Password too short (min 4 chars)", "error")
+        flash("Min 4 characters", "error")
         return redirect(url_for("dashboard"))
     os.makedirs(INSTALL_DIR, exist_ok=True)
-    with open(PANEL_PASS_FILE, "w") as f:
-        f.write(new_pass)
-    flash("Panel password changed", "success")
+    open(PANEL_PASS_FILE, "w").write(new_pass)
+    flash("Password changed", "success")
     return redirect(url_for("dashboard"))
 
+@app.route("/client/add", methods=["GET", "POST"])
+@login_required
+def add_client():
+    if request.method == "POST":
+        name = request.form.get("name", "Client").strip()
+        custom = request.form.get("secret", "").strip().lower()
+        if custom and (len(custom) != 32 or any(c not in "0123456789abcdef" for c in custom)):
+            flash("Secret must be 32 hex characters", "error")
+            return redirect(url_for("add_client"))
+        secret = custom if custom else secrets.token_hex(16)
+        clients = load_clients()
+        cid = secrets.token_hex(4)
+        clients.append({
+            "id": cid,
+            "name": name,
+            "secret": secret,
+            "enabled": True,
+            "created": datetime.now().isoformat()
+        })
+        save_clients(clients)
+        rebuild_service()
+        run_cmd(f"systemctl restart {SERVICE}")
+        flash(f"Client '{name}' created", "success")
+        return redirect(url_for("client_detail", cid=cid))
+    return render_template_string(ADD_CLIENT_HTML)
+
+@app.route("/client/<cid>", methods=["GET", "POST"])
+@login_required
+def client_detail(cid):
+    clients = load_clients()
+    client = next((c for c in clients if c["id"] == cid), None)
+    if not client:
+        flash("Client not found", "error")
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        if request.form.get("delete"):
+            clients = [c for c in clients if c["id"] != cid]
+            save_clients(clients)
+            rebuild_service()
+            run_cmd(f"systemctl restart {SERVICE}")
+            flash("Client deleted", "success")
+            return redirect(url_for("dashboard"))
+
+        client["name"] = request.form.get("name", client["name"]).strip()
+        client["enabled"] = request.form.get("enabled") == "1"
+        save_clients(clients)
+        rebuild_service()
+        run_cmd(f"systemctl restart {SERVICE}")
+        flash("Client updated", "success")
+        return redirect(url_for("client_detail", cid=cid))
+
+    return render_template_string(CLIENT_HTML,
+        client=client,
+        ip=get_public_ip(),
+        port=get_port()
+    )
+
 if __name__ == "__main__":
-    # Run on all interfaces, port 8880
     app.run(host="0.0.0.0", port=8880, debug=False)
