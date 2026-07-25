@@ -2,9 +2,9 @@
 # ============================================================
 #  MTProxy Panel - Complete Telegram MTProxy Installer & Manager
 #  For Ubuntu 20.04 / 22.04 / 24.04
-#  Author: Grok (for aliisudo)
+#  by @ali_sudo_of
 #  Features: Interactive UI Menu | Auto build | Systemd | Links
-#  Version: 1.2 (fixed Permission denied on privileged ports)
+#  Version: 1.3
 # ============================================================
 
 set -e
@@ -41,7 +41,7 @@ print_banner() {
     echo "╔══════════════════════════════════════════════════════════╗"
     echo "║           MTProxy Panel - Telegram Proxy Manager         ║"
     echo "║              Ubuntu 20.04 / 22.04 / 24.04                ║"
-    echo "║                   by Grok for aliisudo                   ║"
+    echo "║                     by @ali_sudo_of                      ║"
     echo "╚══════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
@@ -68,7 +68,6 @@ install_deps() {
     apt-get update -qq
     apt-get install -y -qq git curl build-essential libssl-dev zlib1g-dev \
         openssl ca-certificates libcap2-bin > /dev/null 2>&1 || true
-    # xxd is in xxd or vim-common depending on Ubuntu version
     if ! command -v xxd >/dev/null 2>&1; then
         apt-get install -y -qq xxd > /dev/null 2>&1 || \
         apt-get install -y -qq vim-common > /dev/null 2>&1 || true
@@ -84,7 +83,6 @@ build_mtproxy() {
     git clone --depth 1 https://github.com/TelegramMessenger/MTProxy.git /tmp/MTProxy
     cd /tmp/MTProxy
     
-    # Fix for modern compilers (gcc 10+)
     if [[ -f Makefile ]] && ! grep -q "fcommon" Makefile; then
         sed -i 's/CFLAGS=/CFLAGS=-fcommon /' Makefile || true
         sed -i 's/LDFLAGS=/LDFLAGS=-fcommon /' Makefile || true
@@ -106,7 +104,6 @@ build_mtproxy() {
     cp -f objs/bin/mtproto-proxy "$BINARY"
     chmod 755 "$BINARY"
     
-    # Create system user
     if ! id mtproxy &>/dev/null; then
         useradd --system --no-create-home --shell /usr/sbin/nologin --home-dir "$INSTALL_DIR" mtproxy 2>/dev/null || \
         useradd -r -s /usr/sbin/nologin -d "$INSTALL_DIR" mtproxy || true
@@ -116,23 +113,16 @@ build_mtproxy() {
     echo -e "${GREEN}[✓] MTProxy built successfully${NC}"
 }
 
-# Give the binary permission to bind low ports (<1024) without running as root
 set_capabilities() {
     local port=$1
     if [[ "$port" -lt 1024 ]]; then
-        echo -e "${BLUE}[+] Setting capabilities for privileged port $port ...${NC}"
         if command -v setcap >/dev/null 2>&1; then
-            setcap 'cap_net_bind_service=+ep' "$BINARY" || {
-                echo -e "${YELLOW}[!] setcap failed. Falling back to running as root (less secure).${NC}"
-                # We will handle this in create_systemd by not using User=
-                return 1
+            setcap 'cap_net_bind_service=+ep' "$BINARY" 2>/dev/null && {
+                echo -e "${GREEN}[✓] Capability cap_net_bind_service granted${NC}"
+                return 0
             }
-            echo -e "${GREEN}[✓] Capability cap_net_bind_service granted${NC}"
-            return 0
-        else
-            echo -e "${YELLOW}[!] setcap not available${NC}"
-            return 1
         fi
+        return 1
     fi
     return 0
 }
@@ -164,9 +154,10 @@ generate_secret() {
 create_systemd() {
     local port=$1
     local secret=$2
-    local run_as_root=$3   # "yes" or "no"
+    local run_as_root=$3
 
     if [[ "$run_as_root" == "yes" ]]; then
+        # Run as root (best for port 443 on root servers)
         cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
 Description=Telegram MTProxy
@@ -223,7 +214,6 @@ setup_firewall() {
             echo -e "${GREEN}[✓] UFW: port $port opened${NC}"
         fi
     fi
-    # Also try iptables if needed (best effort)
     iptables -I INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
 }
 
@@ -240,10 +230,7 @@ do_install() {
         systemctl stop ${SERVICE_NAME} 2>/dev/null || true
     fi
     
-    # Ask for port - default changed to 8443 (safe high port)
-    local default_port=8443
-    echo -e "${CYAN}نکته: پورت‌های زیر ۱۰۲۴ (مثل ۴۴۳) نیاز به قابلیت ویژه دارن.${NC}"
-    echo -e "${CYAN}پیشنهاد: از پورت‌های بالا مثل 8443 یا 4430 استفاده کن.${NC}"
+    local default_port=443
     read -p "Enter listen port [default: $default_port]: " input_port
     local PORT=${input_port:-$default_port}
     
@@ -252,26 +239,26 @@ do_install() {
         return
     fi
     
-    # Create dir early so we can write port/secret files safely
     mkdir -p "$INSTALL_DIR"
     
     install_deps
     build_mtproxy
     download_configs
     
-    # Now write port after dir exists
     echo "$PORT" > "$PORT_FILE"
     chown mtproxy:mtproxy "$PORT_FILE" 2>/dev/null || true
     
     local SECRET
     SECRET=$(generate_secret)
 
-    # Handle privileged ports
+    # For port 443 and other privileged ports: prefer running as root (all servers are root)
     local RUN_AS_ROOT="no"
     if [[ "$PORT" -lt 1024 ]]; then
-        if ! set_capabilities "$PORT"; then
+        if set_capabilities "$PORT"; then
+            RUN_AS_ROOT="no"
+        else
             RUN_AS_ROOT="yes"
-            echo -e "${YELLOW}[!] Running service as root because setcap failed.${NC}"
+            echo -e "${BLUE}[+] Running service as root (recommended for port $PORT)${NC}"
         fi
     fi
 
@@ -289,8 +276,6 @@ do_install() {
     else
         echo -e "${RED}[ERROR] Service failed to start. Check: journalctl -u ${SERVICE_NAME} -e${NC}"
         journalctl -u ${SERVICE_NAME} -n 20 --no-pager || true
-        echo ""
-        echo -e "${YELLOW}اگر هنوز Permission denied می‌گیری، پورت رو به عدد بالای ۱۰۲۴ تغییر بده (مثلاً 8443)${NC}"
     fi
 }
 
@@ -366,7 +351,7 @@ show_links() {
     local ip
     ip=$(get_public_ip)
     local port
-    port=$(cat "$PORT_FILE" 2>/dev/null || echo "8443")
+    port=$(cat "$PORT_FILE" 2>/dev/null || echo "443")
     local secret
     secret=$(cat "$SECRET_FILE" 2>/dev/null)
     
@@ -379,7 +364,6 @@ show_links() {
         read -p "Enter your server public IP: " ip
     fi
     
-    # Classic secret format (dd = simple, ee = with TLS)
     local secret_dd="dd${secret}"
     local secret_ee="ee${secret}"
     
@@ -435,7 +419,6 @@ change_port() {
             RUN_AS_ROOT="yes"
         fi
     else
-        # Remove capability if switching to high port
         setcap -r "$BINARY" 2>/dev/null || true
     fi
 
