@@ -4,7 +4,7 @@
 #  For Ubuntu 20.04 / 22.04 / 24.04
 #  Author: Grok (for aliisudo)
 #  Features: Interactive UI Menu | Auto build | Systemd | Links
-#  Version: 1.1 (syntax tested + critical path fixed)
+#  Version: 1.2 (fixed Permission denied on privileged ports)
 # ============================================================
 
 set -e
@@ -67,7 +67,7 @@ install_deps() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq git curl build-essential libssl-dev zlib1g-dev \
-        openssl ca-certificates > /dev/null 2>&1 || true
+        openssl ca-certificates libcap2-bin > /dev/null 2>&1 || true
     # xxd is in xxd or vim-common depending on Ubuntu version
     if ! command -v xxd >/dev/null 2>&1; then
         apt-get install -y -qq xxd > /dev/null 2>&1 || \
@@ -116,6 +116,27 @@ build_mtproxy() {
     echo -e "${GREEN}[✓] MTProxy built successfully${NC}"
 }
 
+# Give the binary permission to bind low ports (<1024) without running as root
+set_capabilities() {
+    local port=$1
+    if [[ "$port" -lt 1024 ]]; then
+        echo -e "${BLUE}[+] Setting capabilities for privileged port $port ...${NC}"
+        if command -v setcap >/dev/null 2>&1; then
+            setcap 'cap_net_bind_service=+ep' "$BINARY" || {
+                echo -e "${YELLOW}[!] setcap failed. Falling back to running as root (less secure).${NC}"
+                # We will handle this in create_systemd by not using User=
+                return 1
+            }
+            echo -e "${GREEN}[✓] Capability cap_net_bind_service granted${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}[!] setcap not available${NC}"
+            return 1
+        fi
+    fi
+    return 0
+}
+
 download_configs() {
     echo -e "${BLUE}[+] Downloading Telegram proxy configs...${NC}"
     mkdir -p "$INSTALL_DIR"
@@ -143,8 +164,30 @@ generate_secret() {
 create_systemd() {
     local port=$1
     local secret=$2
-    
-    cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
+    local run_as_root=$3   # "yes" or "no"
+
+    if [[ "$run_as_root" == "yes" ]]; then
+        cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
+[Unit]
+Description=Telegram MTProxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$BINARY -u nobody -p 8888 -H $port -S $secret --aes-pwd $INSTALL_DIR/proxy-secret $INSTALL_DIR/proxy-multi.conf -M 1
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    else
+        cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
 Description=Telegram MTProxy
 After=network-online.target
@@ -165,6 +208,7 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+    fi
 
     systemctl daemon-reload
     systemctl enable ${SERVICE_NAME} >/dev/null 2>&1 || true
@@ -196,8 +240,10 @@ do_install() {
         systemctl stop ${SERVICE_NAME} 2>/dev/null || true
     fi
     
-    # Ask for port
-    local default_port=443
+    # Ask for port - default changed to 8443 (safe high port)
+    local default_port=8443
+    echo -e "${CYAN}نکته: پورت‌های زیر ۱۰۲۴ (مثل ۴۴۳) نیاز به قابلیت ویژه دارن.${NC}"
+    echo -e "${CYAN}پیشنهاد: از پورت‌های بالا مثل 8443 یا 4430 استفاده کن.${NC}"
     read -p "Enter listen port [default: $default_port]: " input_port
     local PORT=${input_port:-$default_port}
     
@@ -219,7 +265,17 @@ do_install() {
     
     local SECRET
     SECRET=$(generate_secret)
-    create_systemd "$PORT" "$SECRET"
+
+    # Handle privileged ports
+    local RUN_AS_ROOT="no"
+    if [[ "$PORT" -lt 1024 ]]; then
+        if ! set_capabilities "$PORT"; then
+            RUN_AS_ROOT="yes"
+            echo -e "${YELLOW}[!] Running service as root because setcap failed.${NC}"
+        fi
+    fi
+
+    create_systemd "$PORT" "$SECRET" "$RUN_AS_ROOT"
     setup_firewall "$PORT"
     
     systemctl start ${SERVICE_NAME}
@@ -233,6 +289,8 @@ do_install() {
     else
         echo -e "${RED}[ERROR] Service failed to start. Check: journalctl -u ${SERVICE_NAME} -e${NC}"
         journalctl -u ${SERVICE_NAME} -n 20 --no-pager || true
+        echo ""
+        echo -e "${YELLOW}اگر هنوز Permission denied می‌گیری، پورت رو به عدد بالای ۱۰۲۴ تغییر بده (مثلاً 8443)${NC}"
     fi
 }
 
@@ -308,7 +366,7 @@ show_links() {
     local ip
     ip=$(get_public_ip)
     local port
-    port=$(cat "$PORT_FILE" 2>/dev/null || echo "443")
+    port=$(cat "$PORT_FILE" 2>/dev/null || echo "8443")
     local secret
     secret=$(cat "$SECRET_FILE" 2>/dev/null)
     
@@ -370,7 +428,18 @@ change_port() {
     echo "$new_port" > "$PORT_FILE"
     local secret
     secret=$(cat "$SECRET_FILE")
-    create_systemd "$new_port" "$secret"
+
+    local RUN_AS_ROOT="no"
+    if [[ "$new_port" -lt 1024 ]]; then
+        if ! set_capabilities "$new_port"; then
+            RUN_AS_ROOT="yes"
+        fi
+    else
+        # Remove capability if switching to high port
+        setcap -r "$BINARY" 2>/dev/null || true
+    fi
+
+    create_systemd "$new_port" "$secret" "$RUN_AS_ROOT"
     setup_firewall "$new_port"
     systemctl restart ${SERVICE_NAME}
     echo -e "${GREEN}[✓] Port changed to $new_port${NC}"
