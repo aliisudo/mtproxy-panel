@@ -1,52 +1,42 @@
-# MTProxy Panel - پنل مدیریت پروکسی تلگرام (MTProxy)
+# MTProxy Panel
 
-**پنل کامل و تعاملی برای نصب، مدیریت و استفاده از MTProxy روی اوبونتو**
+Complete interactive MTProxy (Telegram Proxy) installer and management panel for Ubuntu.
 
-ساخته شده برای ریپازیتوری `aliisudo` توسط Grok.
+**by @ali_sudo_of**
 
-## ویژگی‌ها
+## Features
 
-- منوی UI کامل و فارسی/انگلیسی پسند
-- نصب خودکار از سورس رسمی (با فیکس‌های لازم برای Ubuntu جدید)
-- ساخت systemd service
-- تولید خودکار Secret
-- نمایش لینک‌های اتصال `tg://` و `https://t.me/proxy`
-- پشتیبانی از پورت دلخواه (پیشنهادی ۴۴۳)
-- مدیریت کامل: Start / Stop / Restart / Status / Uninstall
-- آپدیت کانفیگ‌های تلگرام با یک کلیک
-- باز کردن فایروال (UFW) به صورت خودکار
+- Full interactive menu UI
+- Automatic build from official source (with modern compiler fixes)
+- Systemd service
+- Auto secret generation
+- Connection links (`tg://` and `https://t.me/proxy`)
+- Default port **443** (works perfectly on root servers)
+- Start / Stop / Restart / Status / Uninstall / Change port
+- Update Telegram configs with one click
+- Automatic firewall (UFW) handling
 
-## سیستم‌های پشتیبانی شده
+## Supported Systems
 
 - Ubuntu 20.04 / 22.04 / 24.04
-- Debian 11 / 12 (تقریباً)
+- Debian 11 / 12
 
-## نصب سریع (One-liner)
+## One-line Install
 
-روی سرور اوبونتو به عنوان **root** این دستور را بزن:
+Run as **root**:
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh)
 ```
 
-یا:
+## After Install
 
-```bash
-curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh | bash
-```
+Use option **7** to get ready-to-use connection links.
 
-## استفاده بعد از نصب
+- **dd** secret → Simple (recommended for most users)
+- **ee** secret → Fake TLS (better against DPI)
 
-اسکریپت خودش منوی تعاملی را باز می‌کند.
-
-بعد از نصب، گزینه **7) Show Connection Links** را بزن تا لینک‌های آماده کپی کنی.
-
-### فرمت لینک‌ها:
-
-- **Simple (dd)**: برای اکثر کاربران
-- **Fake TLS (ee)**: برای شبکه‌های محدودتر و DPI
-
-## مدیریت دستی (اختیاری)
+## Manual Management
 
 ```bash
 systemctl status mtproxy
@@ -56,21 +46,14 @@ systemctl restart mtproxy
 journalctl -u mtproxy -f
 ```
 
-فایل‌های مهم:
-- باینری و کانفیگ: `/opt/mtproxy/`
+Important paths:
+- Binary & configs: `/opt/mtproxy/`
 - Secret: `/opt/mtproxy/secret.txt`
 - Port: `/opt/mtproxy/port.txt`
 
-## نکات مهم
+## Uninstall
 
-1. حتماً پورت انتخابی (معمولاً ۴۴۳) را در فایروال کلود/پنل سرور هم باز کن.
-2. برای عملکرد بهتر، سرور با IP تمیز و بدون محدودیت انتخاب کن.
-3. کانفیگ‌های تلگرام را هر چند وقت یکبار آپدیت کن (گزینه ۸).
-4. اگر بیلد رسمی شکست خورد، اسکریپت خودکار به فورک جایگزین سوییچ می‌کند.
-
-## حذف کامل
-
-از داخل منو گزینه ۲ را انتخاب کن، یا:
+From the menu (option 2) or:
 
 ```bash
 systemctl stop mtproxy
@@ -80,8 +63,3 @@ rm -rf /opt/mtproxy
 userdel mtproxy
 systemctl daemon-reload
 ```
-
----
-
-**موفق باشی!**  
-اگر مشکلی دیدی یا خواستی فیچر اضافه بشه بگو.
