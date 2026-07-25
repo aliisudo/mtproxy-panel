@@ -1,65 +1,69 @@
-# MTProxy Panel
+# MTProxy Panel v2.0
 
-Complete interactive MTProxy (Telegram Proxy) installer and management panel for Ubuntu.
+Complete MTProxy (Telegram Proxy) installer with **CLI Menu + Web UI** for Ubuntu.
 
 **by @ali_sudo_of**
 
 ## Features
 
-- Full interactive menu UI
-- Automatic build from official source (with modern compiler fixes)
-- Systemd service
-- Auto secret generation
-- Connection links (`tg://` and `https://t.me/proxy`)
-- Default port **443** (works perfectly on root servers)
-- Start / Stop / Restart / Status / Uninstall / Change port
-- Update Telegram configs with one click
-- Automatic firewall (UFW) handling
-
-## Supported Systems
-
-- Ubuntu 20.04 / 22.04 / 24.04
-- Debian 11 / 12
+- Full interactive CLI menu
+- **Web Panel** on port `8880` (dark modern UI)
+- Support for **Sponsor Channel (AD Tag)** from `@MTProxybot`
+- Default port **443**
+- Start / Stop / Restart / Status / Change settings
+- Auto secret generation + connection links (dd / ee)
+- Systemd services for both proxy and web panel
 
 ## One-line Install
-
-Run as **root**:
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh)
 ```
 
-## After Install
+After install you will see:
 
-Use option **7** to get ready-to-use connection links.
+- Connection links
+- Web Panel URL → `http://YOUR_IP:8880`
+- Default password → `admin`
 
-- **dd** secret → Simple (recommended for most users)
-- **ee** secret → Fake TLS (better against DPI)
+## Web Panel
 
-## Manual Management
+Open `http://YOUR_SERVER_IP:8880`
+
+Login with password `admin` (change it from the panel).
+
+From the web panel you can:
+- See live status
+- Start / Stop / Restart
+- Change port
+- Set / change **AD Tag** (Sponsor Channel)
+- View ready-to-use links
+- Change panel password
+- Uninstall
+
+## AD Tag (Sponsor Channel)
+
+1. Open Telegram and talk to **@MTProxybot**
+2. Create a proxy / get your tag
+3. Paste the tag in the Web Panel or during CLI install
+
+## Manual Commands
 
 ```bash
 systemctl status mtproxy
-systemctl start mtproxy
-systemctl stop mtproxy
-systemctl restart mtproxy
+systemctl status mtproxy-web
 journalctl -u mtproxy -f
 ```
 
-Important paths:
-- Binary & configs: `/opt/mtproxy/`
-- Secret: `/opt/mtproxy/secret.txt`
-- Port: `/opt/mtproxy/port.txt`
-
 ## Uninstall
 
-From the menu (option 2) or:
+From CLI menu (option 2) or:
 
 ```bash
-systemctl stop mtproxy
-systemctl disable mtproxy
-rm -f /etc/systemd/system/mtproxy.service
-rm -rf /opt/mtproxy
+systemctl stop mtproxy mtproxy-web
+systemctl disable mtproxy mtproxy-web
+rm -f /etc/systemd/system/mtproxy.service /etc/systemd/system/mtproxy-web.service
+rm -rf /opt/mtproxy /opt/mtproxy-panel
 userdel mtproxy
 systemctl daemon-reload
 ```
