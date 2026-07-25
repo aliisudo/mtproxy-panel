@@ -4,6 +4,7 @@
 #  For Ubuntu 20.04 / 22.04 / 24.04
 #  Author: Grok (for aliisudo)
 #  Features: Interactive UI Menu | Auto build | Systemd | Links
+#  Version: 1.1 (syntax tested + critical path fixed)
 # ============================================================
 
 set -e
@@ -19,7 +20,6 @@ BOLD='\033[1m'
 
 INSTALL_DIR="/opt/mtproxy"
 SERVICE_NAME="mtproxy"
-CONFIG_DIR="/opt/mtproxy"
 BINARY="$INSTALL_DIR/mtproto-proxy"
 SECRET_FILE="$INSTALL_DIR/secret.txt"
 PORT_FILE="$INSTALL_DIR/port.txt"
@@ -48,12 +48,14 @@ print_banner() {
 
 get_public_ip() {
     local ip
-    ip=$(curl -s --max-time 5 https://api.ipify.org || curl -s --max-time 5 https://ifconfig.me || curl -s --max-time 5 https://icanhazip.com)
+    ip=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || \
+         curl -s --max-time 5 https://ifconfig.me 2>/dev/null || \
+         curl -s --max-time 5 https://icanhazip.com 2>/dev/null || echo "")
     echo "$ip"
 }
 
 check_installed() {
-    if [[ -f "$BINARY" ]] && systemctl list-unit-files | grep -q "${SERVICE_NAME}.service"; then
+    if [[ -f "$BINARY" ]] && [[ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]]; then
         return 0
     else
         return 1
@@ -62,61 +64,70 @@ check_installed() {
 
 install_deps() {
     echo -e "${BLUE}[+] Installing dependencies...${NC}"
+    export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        git curl build-essential libssl-dev zlib1g-dev \
-        xxd openssl ca-certificates > /dev/null 2>&1 || {
-            apt-get install -y -qq vim-common > /dev/null 2>&1 || true
-        }
+    apt-get install -y -qq git curl build-essential libssl-dev zlib1g-dev \
+        openssl ca-certificates > /dev/null 2>&1 || true
+    # xxd is in xxd or vim-common depending on Ubuntu version
+    if ! command -v xxd >/dev/null 2>&1; then
+        apt-get install -y -qq xxd > /dev/null 2>&1 || \
+        apt-get install -y -qq vim-common > /dev/null 2>&1 || true
+    fi
     echo -e "${GREEN}[✓] Dependencies installed${NC}"
 }
 
 build_mtproxy() {
     echo -e "${BLUE}[+] Building MTProxy from source...${NC}"
     
-    # Use official repo + common fixes for modern gcc
-    if [[ -d /tmp/MTProxy ]]; then
-        rm -rf /tmp/MTProxy
-    fi
+    rm -rf /tmp/MTProxy 2>/dev/null || true
     
     git clone --depth 1 https://github.com/TelegramMessenger/MTProxy.git /tmp/MTProxy
     cd /tmp/MTProxy
     
     # Fix for modern compilers (gcc 10+)
-    if ! grep -q "fcommon" Makefile; then
+    if [[ -f Makefile ]] && ! grep -q "fcommon" Makefile; then
         sed -i 's/CFLAGS=/CFLAGS=-fcommon /' Makefile || true
         sed -i 's/LDFLAGS=/LDFLAGS=-fcommon /' Makefile || true
     fi
     
-    make -j$(nproc) > /tmp/mtproxy_build.log 2>&1 || {
+    if ! make -j"$(nproc)" > /tmp/mtproxy_build.log 2>&1; then
         echo -e "${YELLOW}[!] Official build failed, trying community fork...${NC}"
         rm -rf /tmp/MTProxy
         git clone --depth 1 https://github.com/GetPageSpeed/MTProxy.git /tmp/MTProxy
         cd /tmp/MTProxy
-        make -j$(nproc) > /tmp/mtproxy_build.log 2>&1 || {
+        if ! make -j"$(nproc)" > /tmp/mtproxy_build.log 2>&1; then
             echo -e "${RED}[ERROR] Build failed. Check /tmp/mtproxy_build.log${NC}"
+            cat /tmp/mtproxy_build.log | tail -30
             exit 1
-        }
-    }
+        fi
+    fi
     
     mkdir -p "$INSTALL_DIR"
-    cp objs/bin/mtproto-proxy "$BINARY"
-    chmod +x "$BINARY"
+    cp -f objs/bin/mtproto-proxy "$BINARY"
+    chmod 755 "$BINARY"
     
     # Create system user
     if ! id mtproxy &>/dev/null; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin --home-dir "$INSTALL_DIR" mtproxy 2>/dev/null || \
         useradd -r -s /usr/sbin/nologin -d "$INSTALL_DIR" mtproxy || true
     fi
-    chown -R mtproxy:mtproxy "$INSTALL_DIR"
+    chown -R mtproxy:mtproxy "$INSTALL_DIR" 2>/dev/null || true
     
     echo -e "${GREEN}[✓] MTProxy built successfully${NC}"
 }
 
 download_configs() {
     echo -e "${BLUE}[+] Downloading Telegram proxy configs...${NC}"
-    curl -s https://core.telegram.org/getProxySecret -o "$INSTALL_DIR/proxy-secret"
-    curl -s https://core.telegram.org/getProxyConfig -o "$INSTALL_DIR/proxy-multi.conf"
-    chown mtproxy:mtproxy "$INSTALL_DIR/proxy-secret" "$INSTALL_DIR/proxy-multi.conf"
+    mkdir -p "$INSTALL_DIR"
+    curl -s --max-time 15 https://core.telegram.org/getProxySecret -o "$INSTALL_DIR/proxy-secret" || {
+        echo -e "${RED}[ERROR] Failed to download proxy-secret${NC}"
+        exit 1
+    }
+    curl -s --max-time 15 https://core.telegram.org/getProxyConfig -o "$INSTALL_DIR/proxy-multi.conf" || {
+        echo -e "${RED}[ERROR] Failed to download proxy-multi.conf${NC}"
+        exit 1
+    }
+    chown mtproxy:mtproxy "$INSTALL_DIR/proxy-secret" "$INSTALL_DIR/proxy-multi.conf" 2>/dev/null || true
     echo -e "${GREEN}[✓] Configs downloaded${NC}"
 }
 
@@ -124,7 +135,8 @@ generate_secret() {
     local secret
     secret=$(head -c 16 /dev/urandom | xxd -ps)
     echo "$secret" > "$SECRET_FILE"
-    chown mtproxy:mtproxy "$SECRET_FILE"
+    chown mtproxy:mtproxy "$SECRET_FILE" 2>/dev/null || true
+    chmod 600 "$SECRET_FILE"
     echo "$secret"
 }
 
@@ -155,20 +167,20 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable ${SERVICE_NAME}
+    systemctl enable ${SERVICE_NAME} >/dev/null 2>&1 || true
     echo -e "${GREEN}[✓] Systemd service created${NC}"
 }
 
 setup_firewall() {
     local port=$1
     if command -v ufw &>/dev/null; then
-        if ufw status | grep -q "Status: active"; then
-            ufw allow $port/tcp > /dev/null 2>&1 || true
+        if ufw status 2>/dev/null | grep -q "Status: active"; then
+            ufw allow "${port}/tcp" >/dev/null 2>&1 || true
             echo -e "${GREEN}[✓] UFW: port $port opened${NC}"
         fi
     fi
-    # Also try iptables if needed
-    iptables -I INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || true
+    # Also try iptables if needed (best effort)
+    iptables -I INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
 }
 
 do_install() {
@@ -187,19 +199,25 @@ do_install() {
     # Ask for port
     local default_port=443
     read -p "Enter listen port [default: $default_port]: " input_port
-    PORT=${input_port:-$default_port}
+    local PORT=${input_port:-$default_port}
     
     if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
         echo -e "${RED}Invalid port${NC}"
         return
     fi
     
-    echo "$PORT" > "$PORT_FILE"
+    # Create dir early so we can write port/secret files safely
+    mkdir -p "$INSTALL_DIR"
     
     install_deps
     build_mtproxy
     download_configs
     
+    # Now write port after dir exists
+    echo "$PORT" > "$PORT_FILE"
+    chown mtproxy:mtproxy "$PORT_FILE" 2>/dev/null || true
+    
+    local SECRET
     SECRET=$(generate_secret)
     create_systemd "$PORT" "$SECRET"
     setup_firewall "$PORT"
@@ -214,6 +232,7 @@ do_install() {
         show_links
     else
         echo -e "${RED}[ERROR] Service failed to start. Check: journalctl -u ${SERVICE_NAME} -e${NC}"
+        journalctl -u ${SERVICE_NAME} -n 20 --no-pager || true
     fi
 }
 
@@ -228,7 +247,7 @@ do_uninstall() {
     systemctl stop ${SERVICE_NAME} 2>/dev/null || true
     systemctl disable ${SERVICE_NAME} 2>/dev/null || true
     rm -f /etc/systemd/system/${SERVICE_NAME}.service
-    systemctl daemon-reload
+    systemctl daemon-reload 2>/dev/null || true
     
     if [[ -d "$INSTALL_DIR" ]]; then
         rm -rf "$INSTALL_DIR"
@@ -245,24 +264,36 @@ show_status() {
     if check_installed; then
         systemctl status ${SERVICE_NAME} --no-pager -l || true
         echo ""
-        echo -e "${CYAN}Port:${NC} $(cat $PORT_FILE 2>/dev/null || echo 'N/A')"
-        echo -e "${CYAN}Secret:${NC} $(cat $SECRET_FILE 2>/dev/null || echo 'N/A')"
+        echo -e "${CYAN}Port:${NC} $(cat "$PORT_FILE" 2>/dev/null || echo 'N/A')"
+        echo -e "${CYAN}Secret:${NC} $(cat "$SECRET_FILE" 2>/dev/null || echo 'N/A')"
     else
         echo -e "${RED}MTProxy is not installed.${NC}"
     fi
 }
 
 start_service() {
+    if ! check_installed; then
+        echo -e "${RED}Not installed${NC}"
+        return
+    fi
     systemctl start ${SERVICE_NAME}
     echo -e "${GREEN}[✓] Started${NC}"
 }
 
 stop_service() {
+    if ! check_installed; then
+        echo -e "${RED}Not installed${NC}"
+        return
+    fi
     systemctl stop ${SERVICE_NAME}
     echo -e "${GREEN}[✓] Stopped${NC}"
 }
 
 restart_service() {
+    if ! check_installed; then
+        echo -e "${RED}Not installed${NC}"
+        return
+    fi
     systemctl restart ${SERVICE_NAME}
     echo -e "${GREEN}[✓] Restarted${NC}"
 }
@@ -274,13 +305,20 @@ show_links() {
         return
     fi
     
-    local ip=$(get_public_ip)
-    local port=$(cat "$PORT_FILE" 2>/dev/null || echo "443")
-    local secret=$(cat "$SECRET_FILE" 2>/dev/null)
+    local ip
+    ip=$(get_public_ip)
+    local port
+    port=$(cat "$PORT_FILE" 2>/dev/null || echo "443")
+    local secret
+    secret=$(cat "$SECRET_FILE" 2>/dev/null)
     
-    if [[ -z "$secret" || -z "$ip" ]]; then
-        echo -e "${RED}Cannot generate links (missing IP or secret)${NC}"
+    if [[ -z "$secret" ]]; then
+        echo -e "${RED}Cannot generate links (missing secret)${NC}"
         return
+    fi
+    if [[ -z "$ip" ]]; then
+        echo -e "${YELLOW}[!] Could not detect public IP automatically.${NC}"
+        read -p "Enter your server public IP: " ip
     fi
     
     # Classic secret format (dd = simple, ee = with TLS)
@@ -309,6 +347,10 @@ show_links() {
 }
 
 update_configs() {
+    if ! check_installed; then
+        echo -e "${RED}Not installed${NC}"
+        return
+    fi
     echo -e "${BLUE}[+] Updating Telegram configs...${NC}"
     download_configs
     systemctl restart ${SERVICE_NAME}
@@ -321,12 +363,13 @@ change_port() {
         return
     fi
     read -p "New port: " new_port
-    if ! [[ "$new_port" =~ ^[0-9]+$ ]]; then
-        echo -e "${RED}Invalid${NC}"
+    if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+        echo -e "${RED}Invalid port${NC}"
         return
     fi
     echo "$new_port" > "$PORT_FILE"
-    local secret=$(cat "$SECRET_FILE")
+    local secret
+    secret=$(cat "$SECRET_FILE")
     create_systemd "$new_port" "$secret"
     setup_firewall "$new_port"
     systemctl restart ${SERVICE_NAME}
@@ -339,13 +382,14 @@ main_menu() {
         print_banner
         
         if check_installed; then
-            local status=$(systemctl is-active ${SERVICE_NAME} 2>/dev/null || echo "inactive")
+            local status
+            status=$(systemctl is-active ${SERVICE_NAME} 2>/dev/null || echo "inactive")
             if [[ "$status" == "active" ]]; then
                 echo -e "Status: ${GREEN}● Running${NC}"
             else
                 echo -e "Status: ${RED}● Stopped${NC}"
             fi
-            echo -e "Port: $(cat $PORT_FILE 2>/dev/null || echo '?')"
+            echo -e "Port: $(cat "$PORT_FILE" 2>/dev/null || echo '?')"
         else
             echo -e "Status: ${YELLOW}Not installed${NC}"
         fi
