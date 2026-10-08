@@ -125,524 +125,674 @@ WantedBy=multi-user.target
 
 # ==================== TEMPLATES ====================
 
-BASE_CSS = """
-:root {
-  color-scheme: dark;
-  --bg: #0b0b0f;
-  --card: #14141c;
-  --inset: #0e0e14;
-  --ghost: #1e1e28;
-  --border: #252532;
-  --text: #e8e8f0;
-  --muted: #8b8b9e;
-  --primary: #6c5ce7;
-  --primary-hover: #7f71f0;
-  --link: #a29bfe;
-  --success: #00b894;
-  --danger: #ff6b6b;
-  --warning: #fdcb6e;
-  --header-bg: rgba(20, 20, 28, 0.72);
-  --radius: 14px;
+def _svg(*parts, size=20, width=2):
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            f'stroke-width="{width}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            + "".join(p if p.startswith("<") else f'<path d="{p}"/>' for p in parts) + "</svg>")
+
+ICONS = {
+    "logo": _svg("M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z", "M9 12l2 2 4-4", size=18, width=2.2),
+    "logo_lg": _svg("M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z", "M9 12l2 2 4-4", size=32, width=2),
+    "play": _svg("M7 5l12 7-12 7V5z", size=16),
+    "stop": _svg('<rect x="6" y="6" width="12" height="12" rx="2"/>', size=16),
+    "restart": _svg("M20 12a8 8 0 1 1-2.3-5.7", "M20 4v5h-5", size=16),
+    "plus": _svg("M12 5v14", "M5 12h14", size=16, width=2.4),
+    "copy": _svg('<rect x="9" y="9" width="11" height="11" rx="2.5"/>', "M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9", size=16),
+    "check": _svg("M5 12.5l4.5 4.5L19 7", size=16, width=2.6),
+    "x": _svg("M7 7l10 10", "M17 7L7 17", size=14, width=2.8),
+    "check_sm": _svg("M5 12.5l4.5 4.5L19 7", size=14, width=3),
+    "chev_right": _svg("M9 6l6 6-6 6", size=16, width=2.4),
+    "chev_left": _svg("M15 5l-7 7 7 7", size=20, width=2.4),
+    "logout": _svg("M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3", "M10 8l-4 4 4 4", "M6 12h10", size=18),
+    "eye": _svg("M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z", '<circle cx="12" cy="12" r="3"/>', size=18),
+    "send": _svg("M7 17L17 7", "M8 7h9v9", size=18, width=2.4),
+    "users": _svg('<circle cx="9" cy="8" r="3.5"/>', "M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5", "M16 4.5a3.5 3.5 0 0 1 0 7", "M18.5 13.8c1.8.9 3 2.9 3 5.2", size=26),
+    "terminal": _svg("M4 17l6-5-6-5", "M12 19h8", size=26),
+    "trash": _svg("M4 7h16", "M10 11v6", "M14 11v6", "M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12", "M9 7V4h6v3", size=16),
 }
-@media (prefers-color-scheme: light) {
+
+CSS = """
+:root {
+  color-scheme: light dark;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --fill: rgba(120, 120, 128, 0.12);
+  --fill-2: rgba(120, 120, 128, 0.24);
+  --separator: rgba(60, 60, 67, 0.14);
+  --text: #1c1c1e;
+  --text-2: rgba(60, 60, 67, 0.64);
+  --text-3: rgba(60, 60, 67, 0.4);
+  --accent: #5856d6;
+  --accent-press: #4846c4;
+  --accent-tint: rgba(88, 86, 214, 0.12);
+  --green: #248a3d;
+  --green-tint: rgba(52, 199, 89, 0.15);
+  --red: #d70015;
+  --red-tint: rgba(255, 59, 48, 0.12);
+  --orange: #c93400;
+  --orange-tint: rgba(255, 149, 0, 0.15);
+  --switch-on: #34c759;
+  --nav: rgba(242, 242, 247, 0.72);
+  --toast: rgba(255, 255, 255, 0.86);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 24px rgba(0, 0, 0, 0.05);
+  --avatar-l: 42%;
+  --r-lg: 22px;
+  --r-md: 14px;
+}
+@media (prefers-color-scheme: dark) {
   :root {
-    color-scheme: light;
-    --bg: #f5f5f7;
-    --card: #ffffff;
-    --inset: #f0f0f4;
-    --ghost: #e8e8ee;
-    --border: #e2e2ea;
-    --text: #1d1d1f;
-    --muted: #6e6e7a;
-    --primary: #5b4bd6;
-    --primary-hover: #4a3bc4;
-    --link: #5b4bd6;
-    --success: #00875f;
-    --danger: #d63c3c;
-    --warning: #9a6a00;
-    --header-bg: rgba(255, 255, 255, 0.72);
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-2: #2c2c2e;
+    --fill: rgba(120, 120, 128, 0.24);
+    --fill-2: rgba(120, 120, 128, 0.36);
+    --separator: rgba(84, 84, 88, 0.55);
+    --text: #f5f5f7;
+    --text-2: rgba(235, 235, 245, 0.62);
+    --text-3: rgba(235, 235, 245, 0.32);
+    --accent: #7d7aff;
+    --accent-press: #6b68f0;
+    --accent-tint: rgba(125, 122, 255, 0.18);
+    --green: #30d158;
+    --green-tint: rgba(48, 209, 88, 0.16);
+    --red: #ff453a;
+    --red-tint: rgba(255, 69, 58, 0.16);
+    --orange: #ff9f0a;
+    --orange-tint: rgba(255, 159, 10, 0.16);
+    --switch-on: #30d158;
+    --nav: rgba(0, 0, 0, 0.62);
+    --toast: rgba(44, 44, 46, 0.86);
+    --shadow: none;
+    --avatar-l: 72%;
   }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
 body {
+  font: 15px/1.47 var(--font);
   background: var(--bg);
   color: var(--text);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   min-height: 100vh;
-  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 a { color: inherit; text-decoration: none; }
-h1 { letter-spacing: -0.02em; line-height: 1.2; }
-h2 { letter-spacing: -0.01em; line-height: 1.3; }
-:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.container { max-width: 960px; margin: 0 auto; padding: 16px; }
-.header {
-  background: var(--header-bg);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--border);
-  padding: 14px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 50;
+button, input, select { font: inherit; color: inherit; }
+svg { display: block; flex: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--mono); }
+
+/* Navigation: translucent material, content scrolls underneath */
+.nav {
+  position: sticky; top: 0; z-index: 40;
+  background: var(--nav);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 0.5px 0 var(--separator);
 }
-.header h1 { font-size: 1.15rem; font-weight: 700; }
-.header .sub { font-size: 0.75rem; color: var(--muted); }
-.header a { padding: 8px 4px; transition: color 150ms ease; }
-@media (hover: hover) { .header a:hover { color: var(--text) !important; } }
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  margin-bottom: 16px;
+.nav-inner {
+  max-width: 1080px; margin: 0 auto; height: 56px; padding: 0 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
-.card h2 { font-size: 1rem; margin-bottom: 14px; font-weight: 600; }
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 600;
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+.logo {
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
+  display: grid; place-items: center; color: #fff;
+  background: linear-gradient(140deg, #7d7aff, #5856d6 45%, #0a84ff);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.45), 0 2px 8px rgba(88, 86, 214, 0.3);
 }
-.badge .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.badge.active { background: rgba(0,184,148,0.15); color: var(--success); }
-.badge.inactive { background: rgba(255,107,107,0.15); color: var(--danger); }
-.badge.not_installed { background: rgba(253,203,110,0.15); color: var(--warning); }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
-.info-box {
-  background: var(--inset);
-  border-radius: 10px;
-  padding: 12px;
+.nav-link {
+  display: inline-flex; align-items: center; gap: 4px; color: var(--accent);
+  font-size: 16px; font-weight: 500; padding: 8px 10px; margin: 0 -10px; border-radius: 10px;
+  transition: opacity 150ms ease;
 }
-.info-box label { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; }
-.info-box .val { font-family: ui-monospace, monospace; font-size: 0.9rem; word-break: break-all; }
+.nav-link:active { opacity: 0.5; }
+
+/* Page */
+.page { max-width: 1080px; margin: 0 auto; padding: 28px 16px 56px; }
+.page-head { margin-bottom: 22px; }
+.eyebrow { font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+h1 { font-size: 34px; line-height: 1.12; font-weight: 700; letter-spacing: -0.025em; }
+h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.015em; }
+.layout { display: grid; gap: 20px; align-items: start; }
+@media (min-width: 900px) { .layout { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); } }
+.col { display: grid; gap: 20px; min-width: 0; }
+.card { background: var(--surface); border-radius: var(--r-lg); padding: 20px; box-shadow: var(--shadow); min-width: 0; }
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.card-sub { color: var(--text-2); font-size: 14px; margin-top: 2px; }
+.foot { text-align: center; color: var(--text-3); font-size: 12px; margin-top: 32px; }
+
+/* Status */
+.status {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px 6px 11px; border-radius: 999px; font-weight: 600; font-size: 14px;
+}
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; position: relative; }
+.status--active { color: var(--green); background: var(--green-tint); }
+.status--active .dot::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; background: currentColor;
+  animation: pulse 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+@keyframes pulse { from { transform: scale(1); opacity: 0.55; } to { transform: scale(3.2); opacity: 0; } }
+.status--inactive { color: var(--red); background: var(--red-tint); }
+.status--not_installed { color: var(--orange); background: var(--orange-tint); }
+
+/* Hero */
+.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.hero-actions { display: flex; gap: 8px; }
+.hero-actions form { display: contents; }
+.address { margin: 24px 0 20px; }
+.label { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 4px; }
+.address-value {
+  font-family: var(--mono); font-size: clamp(24px, 6vw, 32px); font-weight: 600;
+  letter-spacing: -0.03em; line-height: 1.15; word-break: break-all;
+}
+.address-value .port { color: var(--text-3); }
+.stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (min-width: 560px) { .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.stat { background: var(--surface-2); border-radius: var(--r-md); padding: 12px 14px; min-width: 0; }
+.stat .label { font-size: 12px; margin-bottom: 2px; }
+.stat-value { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-value.small { font-size: 15px; font-family: var(--mono); font-weight: 500; letter-spacing: 0; line-height: 1.8; }
+.stat-value.none { color: var(--text-3); }
+
+/* Buttons: feedback on press, not on release */
 .btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border: none;
-  border-radius: 10px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  touch-action: manipulation;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 40px; padding: 0 16px; border: 0; border-radius: 999px;
+  font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  transition: transform 100ms ease-out, background-color 150ms ease, opacity 150ms ease;
+}
+.btn:active { transform: scale(0.96); }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-tinted { background: var(--accent-tint); color: var(--accent); }
+.btn-green { background: var(--green-tint); color: var(--green); }
+.btn-red { background: var(--red-tint); color: var(--red); }
+.btn-gray { background: var(--fill); color: var(--text); }
+@media (hover: hover) {
+  .btn-primary:hover { background: var(--accent-press); }
+  .btn-tinted:hover, .btn-green:hover, .btn-red:hover, .btn-gray:hover { opacity: 0.8; }
+}
+.btn-sm { height: 34px; padding: 0 13px; font-size: 14px; }
+.btn-icon { width: 34px; padding: 0; }
+.btn-lg { height: 50px; width: 100%; border-radius: 14px; font-size: 17px; }
+.btn-block { width: 100%; }
+.stack { display: grid; gap: 10px; margin-top: 16px; }
+
+/* Client list */
+.list { list-style: none; margin: 0 -10px; }
+.list li { position: relative; }
+.list li + li::before { content: ""; position: absolute; top: 0; left: 64px; right: 10px; height: 0.5px; background: var(--separator); }
+.row {
+  display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 14px;
+  transition: background-color 150ms ease, transform 100ms ease-out;
+}
+.row:active { background: var(--fill); transform: scale(0.99); }
+@media (hover: hover) { .row:hover { background: var(--fill); } }
+.avatar {
+  width: 42px; height: 42px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-weight: 650; font-size: 17px;
+  color: hsl(var(--h) 70% var(--avatar-l)); background: hsl(var(--h) 85% 60% / 0.16);
+}
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.row-title { font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-sub { color: var(--text-2); font-size: 13px; font-family: var(--mono); }
+.tag { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.tag--on { color: var(--green); background: var(--green-tint); }
+.tag--off { color: var(--text-2); background: var(--fill); }
+.chev { color: var(--text-3); }
+
+.empty { text-align: center; padding: 20px 8px 8px; }
+.empty-icon {
+  width: 60px; height: 60px; border-radius: 18px; margin: 0 auto 14px;
+  display: grid; place-items: center; background: var(--accent-tint); color: var(--accent);
+}
+.empty h3 { font-size: 17px; font-weight: 600; }
+.empty p { color: var(--text-2); margin: 4px auto 18px; max-width: 320px; }
+
+/* Copy rows */
+.copy {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: var(--surface-2); border: 0; border-radius: var(--r-md); padding: 12px 12px 12px 14px;
+  cursor: pointer; touch-action: manipulation;
   transition: transform 100ms ease-out, background-color 150ms ease;
 }
-.btn:active { transform: scale(0.97); }
-.btn-primary { background: var(--primary); color: #fff; }
-@media (hover: hover) { .btn-primary:hover { background: var(--primary-hover); } }
-.btn-success { background: rgba(0,184,148,0.2); color: var(--success); }
-.btn-danger { background: rgba(255,107,107,0.2); color: var(--danger); }
-.btn-warning { background: rgba(253,203,110,0.2); color: var(--warning); }
-.btn-ghost { background: var(--ghost); color: var(--muted); }
-.btn-block { width: 100%; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
-input, select, textarea {
-  width: 100%;
-  padding: 11px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--inset);
-  color: var(--text);
-  font-size: 1rem;
-  transition: border-color 150ms ease;
+.copy + .copy { margin-top: 8px; }
+.copy:active { transform: scale(0.985); }
+.copy-main { flex: 1; min-width: 0; }
+.copy-label { display: block; font-size: 13px; font-weight: 600; }
+.copy-text {
+  display: block; margin-top: 2px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-input:focus, select:focus { outline: none; border-color: var(--primary); }
-.form-group { margin-bottom: 12px; }
-.form-group label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 5px; }
-.flash {
-  padding: 12px 16px;
-  border-radius: 10px;
-  margin-bottom: 14px;
-  font-size: 0.9rem;
+.copy-icon {
+  position: relative; width: 34px; height: 34px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; background: var(--accent-tint); color: var(--accent);
+  transition: background-color 200ms ease, color 200ms ease;
 }
-.flash.success { background: rgba(0,184,148,0.15); color: var(--success); }
-.flash.error { background: rgba(255,107,107,0.15); color: var(--danger); }
-.flash.info { background: rgba(108,92,231,0.15); color: #a29bfe; }
-.table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.table th { text-align: left; color: var(--muted); font-weight: 500; padding: 8px 6px; border-bottom: 1px solid var(--border); font-size: 0.75rem; }
-.table td { padding: 12px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.table tr:last-child td { border-bottom: none; }
-.link-box {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 1px solid transparent;
-  background: var(--inset);
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 10px;
-  font-family: ui-monospace, monospace;
-  font-size: 0.8rem;
-  word-break: break-all;
-  color: var(--link);
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: transform 100ms ease-out, border-color 150ms ease;
+.copy-icon > span { grid-area: 1 / 1; display: grid; transition: opacity 150ms ease, transform 250ms cubic-bezier(0.22, 1, 0.36, 1); }
+.copy-icon .i-check { opacity: 0; transform: scale(0.4); }
+.copy.copied .copy-icon { background: var(--green-tint); color: var(--green); }
+.copy.copied .i-copy { opacity: 0; transform: scale(0.4); }
+.copy.copied .i-check { opacity: 1; transform: scale(1); }
+
+/* Forms */
+.field { display: block; margin-bottom: 14px; }
+.field-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 6px; }
+.input {
+  width: 100%; height: 48px; padding: 0 14px; border-radius: 12px;
+  border: 1px solid transparent; background: var(--surface-2); font-size: 16px; outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
-.link-box:active { transform: scale(0.99); }
-@media (hover: hover) { .link-box:hover { border-color: var(--border); } }
-.link-box .link-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.7rem; margin-bottom: 4px; font-family: system-ui; cursor: inherit; }
-.link-box .copy-hint { color: var(--muted); }
-.link-box.copied { border-color: var(--success); }
-.link-box.copied .copy-hint { color: var(--success); }
-.mobile-nav { display: none; }
-@media (max-width: 640px) {
-  .header h1 { font-size: 1rem; }
-  .container { padding: 12px; }
-  .card { padding: 16px; }
-  .actions { flex-direction: column; }
-  .btn { width: 100%; }
-  .table { font-size: 0.8rem; }
-  .hide-mobile { display: none; }
+.input::placeholder { color: var(--text-3); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-tint); }
+.hint { font-size: 12.5px; color: var(--text-3); margin-top: 6px; }
+
+.switch-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px 10px 14px; background: var(--surface-2); border-radius: 12px; margin-bottom: 14px; cursor: pointer;
+}
+.switch-row .sub { display: block; font-size: 13px; color: var(--text-2); }
+.switch { position: relative; width: 51px; height: 31px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch .track { position: absolute; inset: 0; border-radius: 999px; background: var(--fill-2); transition: background-color 200ms ease; }
+.switch .thumb {
+  position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.switch input:checked ~ .track { background: var(--switch-on); }
+.switch input:checked ~ .thumb { transform: translateX(20px); }
+.switch input:focus-visible ~ .track { box-shadow: 0 0 0 4px var(--accent-tint); }
+
+/* Toasts enter and leave along the same path */
+.toasts {
+  position: fixed; top: 66px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: grid; gap: 8px; width: min(420px, calc(100% - 32px)); pointer-events: none;
+}
+.toast {
+  pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px 12px 12px; border-radius: 16px; font-size: 14px; font-weight: 500;
+  background: var(--toast); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14), 0 0 0 0.5px var(--separator);
+  animation: toast-in 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.toast.leaving { animation: toast-out 250ms cubic-bezier(0.64, 0, 0.78, 0) forwards; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-20px) scale(0.96); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(-20px) scale(0.96); } }
+.toast .ti { width: 24px; height: 24px; border-radius: 50%; flex: none; display: grid; place-items: center; color: #fff; background: var(--accent); }
+.toast--success .ti { background: var(--green); }
+.toast--error .ti { background: var(--red); }
+
+/* Profile (client page) */
+.profile { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; min-width: 0; }
+.profile .avatar { width: 64px; height: 64px; font-size: 26px; }
+.profile h1 { font-size: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile .tag { display: inline-block; margin-top: 6px; }
+.narrow { max-width: 520px; }
+
+/* Sign in */
+.auth {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+  background: radial-gradient(70% 45% at 50% 0%, var(--accent-tint), transparent 70%), var(--bg);
+}
+.auth-card { width: 100%; max-width: 380px; text-align: center; }
+.auth .logo { width: 68px; height: 68px; border-radius: 20px; margin: 0 auto 20px; }
+.auth h1 { font-size: 30px; }
+.auth .sub { color: var(--text-2); margin: 6px 0 28px; }
+.auth form { display: grid; gap: 12px; }
+.pw { position: relative; }
+.pw .input { padding-right: 52px; }
+.eye {
+  position: absolute; right: 6px; top: 6px; width: 36px; height: 36px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-3); cursor: pointer; display: grid; place-items: center;
+  transition: color 150ms ease;
+}
+.eye.on { color: var(--accent); }
+.auth-error {
+  color: var(--red); background: var(--red-tint); border-radius: 12px; padding: 10px 14px;
+  font-size: 14px; font-weight: 500; margin-bottom: 12px; animation: shake 420ms ease-out;
+}
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+
+@media (max-width: 420px) {
+  h1 { font-size: 30px; }
+  .card { padding: 18px 16px; border-radius: 20px; }
+  .hide-sm { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
-  .btn:active, .link-box:active { transform: none; }
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .status--active .dot::after { display: none; }
+  .btn:active, .row:active, .copy:active { transform: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .header { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .nav { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .toast { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
-  :root { --border: #6e6e80; --muted: #b4b4c4; }
+  :root { --separator: rgba(60, 60, 67, 0.5); --text-2: rgba(60, 60, 67, 0.9); --text-3: rgba(60, 60, 67, 0.7); }
+  .card, .stat, .copy, .input { box-shadow: 0 0 0 1px var(--separator); }
 }
-@media (prefers-contrast: more) and (prefers-color-scheme: light) {
-  :root { --border: #8a8a96; --muted: #4a4a55; }
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root { --separator: rgba(235, 235, 245, 0.45); --text-2: rgba(235, 235, 245, 0.85); --text-3: rgba(235, 235, 245, 0.6); }
 }
 """
 
-COPY_JS = """
+JS = """
 <script>
-document.addEventListener('click', function (e) {
-  var box = e.target.closest('.link-box');
-  if (!box) return;
-  var text = box.querySelector('.link-text').textContent.trim();
-  var done = function () {
-    var hint = box.querySelector('.copy-hint');
-    box.classList.add('copied');
-    hint.textContent = 'Copied';
-    clearTimeout(box._t);
-    box._t = setTimeout(function () {
-      box.classList.remove('copied');
-      hint.textContent = 'Tap to copy';
-    }, 1500);
-  };
-  // The panel is usually served over plain http, where navigator.clipboard is unavailable.
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(done);
-  } else {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    if (document.execCommand('copy')) done();
-    document.body.removeChild(ta);
+(function () {
+  function copyText(text) {
+    // The panel is usually served over plain http, where navigator.clipboard is unavailable.
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      ok ? resolve() : reject();
+    });
   }
-});
+  function dismiss(toast) {
+    if (toast.dataset.gone) return;
+    toast.dataset.gone = '1';
+    toast.classList.add('leaving');
+    setTimeout(function () { toast.remove(); }, 260);
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-copy]');
+    if (btn) {
+      copyText(btn.getAttribute('data-copy')).then(function () {
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t = setTimeout(function () { btn.classList.remove('copied'); }, 1600);
+      });
+      return;
+    }
+    var toast = e.target.closest('.toast');
+    if (toast) { dismiss(toast); return; }
+    var eye = e.target.closest('[data-toggle-pw]');
+    if (eye) {
+      var input = document.getElementById(eye.getAttribute('data-toggle-pw'));
+      var show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      eye.classList.toggle('on', show);
+      eye.setAttribute('aria-pressed', show ? 'true' : 'false');
+    }
+  });
+  document.querySelectorAll('.toast').forEach(function (t, i) {
+    setTimeout(function () { dismiss(t); }, 3500 + i * 400);
+  });
+})();
 </script>
 """
 
-LOGIN_HTML = f"""
-<!DOCTYPE html>
+HEAD = """<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MTProxy Panel</title>
-<style>{BASE_CSS}
-.login-wrap {{ min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
-.login-card {{ width: 100%; max-width: 380px; }}
-</style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>%%TITLE%%</title>
+<style>%%CSS%%</style>
 </head>
 <body>
-<div class="login-wrap">
-  <div class="card login-card">
-    <h1 style="text-align:center;margin-bottom:4px">MTProxy Panel</h1>
-    <p style="text-align:center;color:var(--muted);font-size:0.85rem;margin-bottom:24px">by @ali_sudo_of</p>
-    {{% if error %}}<div class="flash error">{{{{ error }}}}</div>{{% endif %}}
-    <form method="POST">
-      <div class="form-group">
-        <input type="password" name="password" placeholder="Password" required autofocus>
-      </div>
-      <button class="btn btn-primary btn-block" type="submit">Login</button>
-    </form>
-    <p style="text-align:center;color:var(--muted);font-size:0.75rem;margin-top:18px">Default: admin</p>
-  </div>
-</div>
-</body>
-</html>
 """
 
-DASHBOARD_HTML = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MTProxy Panel</title>
-<style>{BASE_CSS}</style>
-</head>
-<body>
-<div class="header">
-  <div>
+NAV = """<nav class="nav"><div class="nav-inner">
+  <a href="{{ url_for('dashboard') }}" class="brand"><span class="logo">%%logo%%</span>MTProxy</a>
+  <a href="{{ url_for('logout') }}" class="nav-link">%%logout%%<span class="hide-sm">Log out</span></a>
+</div></nav>
+"""
+
+NAV_BACK = """<nav class="nav"><div class="nav-inner">
+  <a href="{{ url_for('dashboard') }}" class="nav-link">%%chev_left%%Overview</a>
+  <span class="logo">%%logo%%</span>
+</div></nav>
+"""
+
+TOASTS = """{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+<div class="toasts" role="status" aria-live="polite">
+  {% for cat, msg in messages %}
+  <div class="toast toast--{{ cat }}"><span class="ti">{% if cat == 'error' %}%%x%%{% else %}%%check_sm%%{% endif %}</span><span>{{ msg }}</span></div>
+  {% endfor %}
+</div>
+{% endif %}{% endwith %}
+"""
+
+# A tappable row that copies `value`; label/value are Jinja expressions.
+def _copy_row(label, value):
+    return (f'<button type="button" class="copy" data-copy="{value}" aria-label="Copy {label}">'
+            f'<span class="copy-main"><span class="copy-label">{label}</span><span class="copy-text">{value}</span></span>'
+            f'<span class="copy-icon"><span class="i-copy">%%copy%%</span><span class="i-check">%%check%%</span></span>'
+            f'</button>')
+
+def _page(title, body):
+    html = HEAD.replace("%%TITLE%%", title) + body + "%%JS%%\n</body>\n</html>\n"
+    html = html.replace("%%CSS%%", CSS).replace("%%JS%%", JS)
+    for name, svg in ICONS.items():
+        html = html.replace(f"%%{name}%%", svg)
+    return html
+
+LINK_DD = "tg://proxy?server={{ ip }}&port={{ port }}&secret=dd{{ c.secret }}"
+LINK_EE = "tg://proxy?server={{ ip }}&port={{ port }}&secret=ee{{ c.secret }}"
+LINK_SHARE = "https://t.me/proxy?server={{ ip }}&port={{ port }}&secret=dd{{ c.secret }}"
+
+LOGIN_HTML = _page("Sign in · MTProxy", """
+<main class="auth">
+  <div class="auth-card">
+    <span class="logo">%%logo_lg%%</span>
     <h1>MTProxy Panel</h1>
-    <div class="sub">by @ali_sudo_of</div>
-  </div>
-  <a href="{{{{ url_for('logout') }}}}" style="color:var(--muted);font-size:0.85rem">Logout</a>
-</div>
-
-<div class="container">
-  {{% with messages = get_flashed_messages(with_categories=true) %}}
-    {{% for cat, msg in messages %}}
-      <div class="flash {{{{ cat }}}}">{{{{ msg }}}}</div>
-    {{% endfor %}}
-  {{% endwith %}}
-
-  <!-- Status -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
-      {{% if status == 'active' %}}
-        <span class="badge active"><span class="dot"></span> Running</span>
-      {{% elif status == 'inactive' %}}
-        <span class="badge inactive"><span class="dot"></span> Stopped</span>
-      {{% else %}}
-        <span class="badge not_installed"><span class="dot"></span> Not Installed</span>
-      {{% endif %}}
-      <div class="actions" style="margin:0">
-        {{% if status == 'active' %}}
-          <form method="POST" action="{{{{ url_for('action', act='stop') }}}}" style="display:inline"><button class="btn btn-danger" type="submit">Stop</button></form>
-          <form method="POST" action="{{{{ url_for('action', act='restart') }}}}" style="display:inline"><button class="btn btn-warning" type="submit">Restart</button></form>
-        {{% elif status == 'inactive' %}}
-          <form method="POST" action="{{{{ url_for('action', act='start') }}}}" style="display:inline"><button class="btn btn-success" type="submit">Start</button></form>
-        {{% endif %}}
-        <a href="{{{{ url_for('dashboard') }}}}" class="btn btn-ghost">Refresh</a>
-      </div>
-    </div>
-
-    {{% if status != 'not_installed' %}}
-    <div class="grid" style="margin-top:16px">
-      <div class="info-box"><label>IP</label><div class="val">{{{{ ip or 'N/A' }}}}</div></div>
-      <div class="info-box"><label>Port</label><div class="val">{{{{ port }}}}</div></div>
-      <div class="info-box"><label>Clients</label><div class="val">{{{{ clients|length }}}}</div></div>
-      <div class="info-box"><label>AD Tag</label><div class="val">{{{{ adtag[:12] + '...' if adtag else 'Not set' }}}}</div></div>
-    </div>
-    {{% endif %}}
-  </div>
-
-  {{% if status != 'not_installed' %}}
-  <!-- Clients -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <h2 style="margin:0">Clients</h2>
-      <a href="{{{{ url_for('add_client') }}}}" class="btn btn-primary" style="padding:8px 14px;font-size:0.8rem;width:auto">+ New Client</a>
-    </div>
-
-    {{% if clients %}}
-    <div style="overflow-x:auto">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th class="hide-mobile">Secret</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {{% for c in clients %}}
-          <tr>
-            <td><strong>{{{{ c.name }}}}</strong></td>
-            <td class="hide-mobile" style="font-family:monospace;font-size:0.8rem">{{{{ c.secret[:10] }}}}...</td>
-            <td>
-              {{% if c.enabled %}}
-                <span style="color:var(--success);font-size:0.8rem">Enabled</span>
-              {{% else %}}
-                <span style="color:var(--muted);font-size:0.8rem">Disabled</span>
-              {{% endif %}}
-            </td>
-            <td style="text-align:right">
-              <a href="{{{{ url_for('client_detail', cid=c.id) }}}}" class="btn btn-ghost" style="padding:6px 10px;font-size:0.75rem">Manage</a>
-            </td>
-          </tr>
-          {{% endfor %}}
-        </tbody>
-      </table>
-    </div>
-    {{% else %}}
-      <p style="color:var(--muted)">No clients yet. Create one.</p>
-    {{% endif %}}
-  </div>
-
-  <!-- Quick Links for main -->
-  {{% if clients %}}
-  <div class="card">
-    <h2>Quick Links (first client)</h2>
-    {{% set c = clients[0] %}}
-    <button type="button" class="link-box">
-      <span class="link-label">Simple (dd) <span class="copy-hint">Tap to copy</span></span>
-      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ c.secret }}}}</span>
-    </button>
-    <button type="button" class="link-box">
-      <span class="link-label">Fake TLS (ee) <span class="copy-hint">Tap to copy</span></span>
-      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ c.secret }}}}</span>
-    </button>
-  </div>
-  {{% endif %}}
-
-  <!-- Settings -->
-  <div class="card">
-    <h2>Global Settings</h2>
-    <form method="POST" action="{{{{ url_for('save_settings') }}}}">
-      <div class="form-group">
-        <label>Port</label>
-        <input type="number" name="port" value="{{{{ port }}}}" min="1" max="65535" required>
-      </div>
-      <div class="form-group">
-        <label>AD Tag (Sponsor Channel from @MTProxybot)</label>
-        <input type="text" name="adtag" value="{{{{ adtag }}}}" placeholder="Optional 32-char tag">
-      </div>
-      <button class="btn btn-primary" type="submit">Save & Apply</button>
-    </form>
-  </div>
-
-  <!-- Password -->
-  <div class="card">
-    <h2>Panel Password</h2>
-    <form method="POST" action="{{{{ url_for('change_password') }}}}">
-      <div class="form-group">
-        <input type="password" name="new_password" placeholder="New password" required minlength="4">
-      </div>
-      <button class="btn btn-ghost" type="submit">Change Password</button>
-    </form>
-  </div>
-
-  <!-- Danger -->
-  <div class="card">
-    <h2>Danger Zone</h2>
-    <form method="POST" action="{{{{ url_for('action', act='uninstall') }}}}" onsubmit="return confirm('Completely remove MTProxy and all clients?')">
-      <button class="btn btn-danger" type="submit">Uninstall Everything</button>
-    </form>
-  </div>
-  {{% else %}}
-  <div class="card">
-    <h2>Not Installed</h2>
-    <p style="color:var(--muted);margin-bottom:16px">Run the install script on the server first.</p>
-    <code style="display:block;background:var(--inset);padding:12px;border-radius:10px;font-size:0.8rem">
-bash &lt;(curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh)
-    </code>
-  </div>
-  {{% endif %}}
-</div>
-{COPY_JS}
-</body>
-</html>
-"""
-
-CLIENT_HTML = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Client - MTProxy</title>
-<style>{BASE_CSS}</style>
-</head>
-<body>
-<div class="header">
-  <div><h1>Client</h1><div class="sub">{{{{ client.name }}}}</div></div>
-  <a href="{{{{ url_for('dashboard') }}}}" style="color:var(--muted);font-size:0.85rem">← Back</a>
-</div>
-<div class="container">
-  {{% with messages = get_flashed_messages(with_categories=true) %}}
-    {{% for cat, msg in messages %}}
-      <div class="flash {{{{ cat }}}}">{{{{ msg }}}}</div>
-    {{% endfor %}}
-  {{% endwith %}}
-
-  <div class="card">
-    <div class="info-box" style="margin-bottom:12px">
-      <label>Secret</label>
-      <div class="val">{{{{ client.secret }}}}</div>
-    </div>
-    <button type="button" class="link-box">
-      <span class="link-label">Simple (dd) <span class="copy-hint">Tap to copy</span></span>
-      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}</span>
-    </button>
-    <button type="button" class="link-box">
-      <span class="link-label">Fake TLS (ee) <span class="copy-hint">Tap to copy</span></span>
-      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ client.secret }}}}</span>
-    </button>
-    <button type="button" class="link-box">
-      <span class="link-label">Share Link <span class="copy-hint">Tap to copy</span></span>
-      <span class="link-text">https://t.me/proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}</span>
-    </button>
-  </div>
-
-  <div class="card">
-    <h2>Edit Client</h2>
+    <p class="sub">Sign in to manage your proxy</p>
+    {% if error %}<div class="auth-error" role="alert">{{ error }}</div>{% endif %}
     <form method="POST">
-      <div class="form-group">
-        <label>Name</label>
-        <input type="text" name="name" value="{{{{ client.name }}}}" required>
+      <div class="pw">
+        <input class="input" id="password" type="password" name="password" placeholder="Password" required autofocus autocomplete="current-password">
+        <button type="button" class="eye" data-toggle-pw="password" aria-label="Show password" aria-pressed="false">%%eye%%</button>
       </div>
-      <div class="form-group">
-        <label>Enabled</label>
-        <select name="enabled">
-          <option value="1" {{% if client.enabled %}}selected{{% endif %}}>Yes</option>
-          <option value="0" {{% if not client.enabled %}}selected{{% endif %}}>No</option>
-        </select>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" type="submit">Save</button>
-        <button class="btn btn-danger" name="delete" value="1" type="submit" onclick="return confirm('Delete this client?')">Delete</button>
-      </div>
+      <button class="btn btn-primary btn-lg" type="submit">Sign In</button>
     </form>
+    <p class="foot">Default: admin · by @ali_sudo_of</p>
   </div>
-</div>
-{COPY_JS}
-</body>
-</html>
-"""
+</main>
+""")
 
-ADD_CLIENT_HTML = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>New Client</title>
-<style>{BASE_CSS}</style>
-</head>
-<body>
-<div class="header">
-  <div><h1>New Client</h1></div>
-  <a href="{{{{ url_for('dashboard') }}}}" style="color:var(--muted);font-size:0.85rem">← Back</a>
-</div>
-<div class="container">
-  <div class="card">
-    <form method="POST">
-      <div class="form-group">
-        <label>Client Name</label>
-        <input type="text" name="name" placeholder="e.g. Mobile, Friend, Work" required>
-      </div>
-      <div class="form-group">
-        <label>Custom Secret (optional - leave empty to auto generate)</label>
-        <input type="text" name="secret" placeholder="32 hex chars" pattern="[0-9a-fA-F]{{0,32}}">
-      </div>
-      <button class="btn btn-primary btn-block" type="submit">Create Client</button>
-    </form>
+DASHBOARD_HTML = _page("MTProxy Panel", NAV + TOASTS + """
+<main class="page">
+  <header class="page-head">
+    <p class="eyebrow">MTProxy Panel</p>
+    <h1>Overview</h1>
+  </header>
+
+  {% if status == 'not_installed' %}
+  <section class="card narrow">
+    <div class="empty">
+      <div class="empty-icon">%%terminal%%</div>
+      <h3>MTProxy is not installed</h3>
+      <p>Run the install script on the server first, then refresh this page.</p>
+    </div>
+    """ + _copy_row("Install command", "bash &lt;(curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh)") + """
+    <div class="stack"><a href="{{ url_for('dashboard') }}" class="btn btn-gray btn-lg">%%restart%%Refresh</a></div>
+  </section>
+  {% else %}
+  <div class="layout">
+    <div class="col">
+      <section class="card">
+        <div class="hero-top">
+          <span class="status status--{{ status }}"><span class="dot"></span>{{ 'Running' if status == 'active' else 'Stopped' }}</span>
+          <div class="hero-actions">
+            {% if status == 'active' %}
+              <form method="POST" action="{{ url_for('action', act='restart') }}"><button class="btn btn-gray btn-sm" type="submit">%%restart%%Restart</button></form>
+              <form method="POST" action="{{ url_for('action', act='stop') }}"><button class="btn btn-red btn-sm" type="submit">%%stop%%Stop</button></form>
+            {% else %}
+              <form method="POST" action="{{ url_for('action', act='start') }}"><button class="btn btn-green btn-sm" type="submit">%%play%%Start</button></form>
+            {% endif %}
+          </div>
+        </div>
+        <div class="address">
+          <span class="label">Server address</span>
+          <div class="address-value">{{ ip or 'Unknown IP' }}<span class="port">:{{ port }}</span></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><span class="label">Clients</span><div class="stat-value">{{ clients|length }}</div></div>
+          <div class="stat"><span class="label">Enabled</span><div class="stat-value">{{ clients|selectattr('enabled')|list|length }}</div></div>
+          <div class="stat"><span class="label">Port</span><div class="stat-value">{{ port }}</div></div>
+          <div class="stat"><span class="label">AD Tag</span>
+            {% if adtag %}<div class="stat-value small" title="{{ adtag }}">{{ adtag[:8] }}…</div>{% else %}<div class="stat-value small none">Not set</div>{% endif %}
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div><h2>Clients</h2><p class="card-sub">Each client has its own secret and links.</p></div>
+          <a href="{{ url_for('add_client') }}" class="btn btn-tinted btn-sm">%%plus%%New</a>
+        </div>
+        {% if clients %}
+        <ul class="list">
+          {% for c in clients %}
+          <li>
+            <a class="row" href="{{ url_for('client_detail', cid=c.id) }}">
+              <span class="avatar" style="--h: {{ ((c.id[:2]|int(0, 16)) * 1.41)|round|int }}">{{ c.name[:1]|upper }}</span>
+              <span class="row-main"><span class="row-title">{{ c.name }}</span><span class="row-sub">{{ c.secret[:10] }}…</span></span>
+              {% if c.enabled %}<span class="tag tag--on">Enabled</span>{% else %}<span class="tag tag--off">Disabled</span>{% endif %}
+              <span class="chev">%%chev_right%%</span>
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty">
+          <div class="empty-icon">%%users%%</div>
+          <h3>No clients yet</h3>
+          <p>Create a client to get a secret and connection links you can share.</p>
+          <a href="{{ url_for('add_client') }}" class="btn btn-primary">%%plus%%Create Client</a>
+        </div>
+        {% endif %}
+      </section>
+    </div>
+
+    <div class="col">
+      {% if clients %}{% set c = clients[0] %}
+      <section class="card">
+        <div class="card-head"><div><h2>Quick Connect</h2><p class="card-sub">{{ c.name }} · tap a link to copy it</p></div></div>
+        """ + _copy_row("Simple (dd)", LINK_DD) + _copy_row("Fake TLS (ee)", LINK_EE) + """
+        <div class="stack"><a class="btn btn-primary btn-lg" href=\"""" + LINK_DD + """\">%%send%%Open in Telegram</a></div>
+      </section>
+      {% endif %}
+
+      <section class="card">
+        <div class="card-head"><div><h2>Settings</h2><p class="card-sub">Saving restarts the proxy.</p></div></div>
+        <form method="POST" action="{{ url_for('save_settings') }}">
+          <label class="field"><span class="field-label">Port</span>
+            <input class="input" type="number" name="port" value="{{ port }}" min="1" max="65535" required inputmode="numeric"></label>
+          <label class="field"><span class="field-label">AD Tag</span>
+            <input class="input mono" type="text" name="adtag" value="{{ adtag }}" placeholder="Optional 32-char tag" autocomplete="off" spellcheck="false">
+            <span class="hint">Sponsor channel tag from @MTProxybot.</span></label>
+          <button class="btn btn-primary btn-block" type="submit">Save &amp; Apply</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><div><h2>Panel Password</h2></div></div>
+        <form method="POST" action="{{ url_for('change_password') }}">
+          <label class="field"><span class="field-label">New password</span>
+            <input class="input" type="password" name="new_password" placeholder="At least 4 characters" required minlength="4" autocomplete="new-password"></label>
+          <button class="btn btn-gray btn-block" type="submit">Change Password</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><div><h2>Danger Zone</h2><p class="card-sub">Removes MTProxy, this panel and every client.</p></div></div>
+        <form method="POST" action="{{ url_for('action', act='uninstall') }}" onsubmit="return confirm('Completely remove MTProxy and all clients?')">
+          <button class="btn btn-red btn-block" type="submit">%%trash%%Uninstall Everything</button>
+        </form>
+      </section>
+    </div>
   </div>
-</div>
-</body>
-</html>
-"""
+  {% endif %}
+  <p class="foot">by @ali_sudo_of</p>
+</main>
+""")
+
+CLIENT_HTML = _page("{{ client.name }} · MTProxy", NAV_BACK + TOASTS + """
+{% set c = client %}
+<main class="page">
+  <header class="profile">
+    <span class="avatar" style="--h: {{ ((c.id[:2]|int(0, 16)) * 1.41)|round|int }}">{{ c.name[:1]|upper }}</span>
+    <div style="min-width:0">
+      <h1>{{ c.name }}</h1>
+      {% if c.enabled %}<span class="tag tag--on">Enabled</span>{% else %}<span class="tag tag--off">Disabled</span>{% endif %}
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="col">
+      <section class="card">
+        <div class="card-head"><div><h2>Connection Links</h2><p class="card-sub">Tap a link to copy it.</p></div></div>
+        """ + _copy_row("Simple (dd)", LINK_DD) + _copy_row("Fake TLS (ee)", LINK_EE) + _copy_row("Share link", LINK_SHARE) + """
+        <div class="stack"><a class="btn btn-primary btn-lg" href=\"""" + LINK_DD + """\">%%send%%Open in Telegram</a></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><div><h2>Secret</h2></div></div>
+        """ + _copy_row("Secret", "{{ c.secret }}") + """
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card">
+        <div class="card-head"><div><h2>Edit Client</h2><p class="card-sub">Saving restarts the proxy.</p></div></div>
+        <form method="POST">
+          <label class="field"><span class="field-label">Name</span>
+            <input class="input" type="text" name="name" value="{{ c.name }}" required></label>
+          <label class="switch-row">
+            <span><span>Enabled</span><span class="sub">Disabled clients can't connect.</span></span>
+            <span class="switch">
+              <input type="checkbox" name="enabled" value="1" role="switch" {% if c.enabled %}checked{% endif %}>
+              <span class="track"></span><span class="thumb"></span>
+            </span>
+          </label>
+          <input type="hidden" name="enabled" value="0">
+          <div class="stack" style="margin-top:0">
+            <button class="btn btn-primary btn-lg" type="submit">Save</button>
+            <button class="btn btn-red btn-block" name="delete" value="1" type="submit" onclick="return confirm('Delete this client?')">%%trash%%Delete Client</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </div>
+</main>
+""")
+
+ADD_CLIENT_HTML = _page("New Client · MTProxy", NAV_BACK + TOASTS + """
+<main class="page">
+  <header class="page-head">
+    <p class="eyebrow">Clients</p>
+    <h1>New Client</h1>
+  </header>
+  <section class="card narrow">
+    <form method="POST">
+      <label class="field"><span class="field-label">Name</span>
+        <input class="input" type="text" name="name" placeholder="e.g. Mobile, Friend, Work" required autofocus></label>
+      <label class="field"><span class="field-label">Custom secret</span>
+        <input class="input mono" type="text" name="secret" placeholder="Leave empty to generate one" pattern="[0-9a-fA-F]{0,32}" autocomplete="off" spellcheck="false">
+        <span class="hint">Optional. 32 hex characters (0-9, a-f).</span></label>
+      <button class="btn btn-primary btn-lg" type="submit">%%plus%%Create Client</button>
+    </form>
+  </section>
+</main>
+""")
+
 
 # ==================== ROUTES ====================
 
