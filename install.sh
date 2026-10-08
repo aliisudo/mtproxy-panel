@@ -66,8 +66,8 @@ build_mtproxy() {
     git clone --depth 1 https://github.com/TelegramMessenger/MTProxy.git /tmp/MTProxy
     cd /tmp/MTProxy
     if [[ -f Makefile ]] && ! grep -q "fcommon" Makefile; then
-        sed -i 's/CFLAGS=/CFLAGS=-fcommon /' Makefile || true
-        sed -i 's/LDFLAGS=/LDFLAGS=-fcommon /' Makefile || true
+        # GCC 10+ needs -fcommon; the Makefile writes "CFLAGS = ..." with spaces
+        sed -i -E 's/^(CFLAGS[[:space:]]*=)/\1 -fcommon/; s/^(LDFLAGS[[:space:]]*=)/\1 -fcommon/' Makefile || true
     fi
     if ! make -j"$(nproc)" > /tmp/mtproxy_build.log 2>&1; then
         echo -e "${YELLOW}[!] Trying community fork...${NC}"
@@ -86,18 +86,88 @@ build_mtproxy() {
     echo -e "${GREEN}[✓] Binary ready${NC}"
 }
 
+write_config_updater() {
+    mkdir -p "$INSTALL_DIR"
+    cat > "$INSTALL_DIR/update-config.sh" <<'EOF'
+#!/bin/bash
+# Refresh Telegram's proxy secret and server list. Telegram changes them over
+# time, so a stale copy slowly breaks connections. Restarts only on change.
+DIR=/opt/mtproxy
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+curl -fsS --max-time 20 https://core.telegram.org/getProxySecret -o "$TMP/proxy-secret" || exit 1
+curl -fsS --max-time 20 https://core.telegram.org/getProxyConfig -o "$TMP/proxy-multi.conf" || exit 1
+[[ -s "$TMP/proxy-secret" ]] && grep -q "proxy_for" "$TMP/proxy-multi.conf" || exit 1
+changed=0
+for f in proxy-secret proxy-multi.conf; do
+    cmp -s "$TMP/$f" "$DIR/$f" || { cp -f "$TMP/$f" "$DIR/$f"; changed=1; }
+done
+if [[ $changed -eq 1 && "$1" != "--no-restart" ]] && systemctl is-active --quiet mtproxy; then
+    systemctl restart mtproxy
+fi
+exit 0
+EOF
+    chmod 755 "$INSTALL_DIR/update-config.sh"
+
+    cat > /etc/systemd/system/mtproxy-config.service <<EOF
+[Unit]
+Description=Refresh MTProxy Telegram configs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$INSTALL_DIR/update-config.sh
+EOF
+
+    cat > /etc/systemd/system/mtproxy-config.timer <<EOF
+[Unit]
+Description=Refresh MTProxy Telegram configs daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now mtproxy-config.timer >/dev/null 2>&1 || true
+}
+
 download_configs() {
     echo -e "${BLUE}[+] Downloading configs...${NC}"
-    mkdir -p "$INSTALL_DIR"
-    curl -s --max-time 15 https://core.telegram.org/getProxySecret -o "$INSTALL_DIR/proxy-secret"
-    curl -s --max-time 15 https://core.telegram.org/getProxyConfig -o "$INSTALL_DIR/proxy-multi.conf"
-    echo -e "${GREEN}[✓] Configs ready${NC}"
+    write_config_updater
+    if ! "$INSTALL_DIR/update-config.sh" --no-restart; then
+        if [[ -s "$INSTALL_DIR/proxy-secret" && -s "$INSTALL_DIR/proxy-multi.conf" ]]; then
+            echo -e "${YELLOW}[!] Could not reach core.telegram.org, keeping the existing configs${NC}"
+        else
+            echo -e "${RED}[ERROR] Could not download configs from core.telegram.org${NC}"
+            exit 1
+        fi
+    fi
+    echo -e "${GREEN}[✓] Configs ready (refreshed daily)${NC}"
 }
 
 install_web() {
     echo -e "${BLUE}[+] Installing Web Panel...${NC}"
     mkdir -p "$PANEL_DIR"
-    curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/web/app.py -o "$PANEL_DIR/app.py"
+    local TMP_APP
+    TMP_APP=$(mktemp)
+    if curl -fsSL --max-time 30 https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/web/app.py -o "$TMP_APP" \
+            && grep -q "Flask" "$TMP_APP"; then
+        chmod 644 "$TMP_APP"
+        mv -f "$TMP_APP" "$PANEL_DIR/app.py"
+    else
+        rm -f "$TMP_APP"
+        if [[ -f "$PANEL_DIR/app.py" ]]; then
+            echo -e "${YELLOW}[!] Could not download the panel, keeping the existing one${NC}"
+        else
+            echo -e "${RED}[ERROR] Could not download the web panel${NC}"
+            exit 1
+        fi
+    fi
 
     python3 -m venv "$PANEL_DIR/venv" 2>/dev/null || true
     "$PANEL_DIR/venv/bin/pip" install --quiet --upgrade pip flask 2>/dev/null || pip3 install --quiet flask
@@ -130,6 +200,7 @@ EOF
 do_full_install() {
     local PORT=${1:-443}
     local ADTAG=${2:-""}
+    local DOMAIN=${3:-""}
 
     print_banner
     echo -e "${YELLOW}=== Installing / Updating MTProxy + Web Panel ===${NC}\n"
@@ -160,6 +231,7 @@ EOC
 
     echo "$PORT" > "$INSTALL_DIR/port.txt"
     [[ -n "$ADTAG" ]] && echo "$ADTAG" > "$INSTALL_DIR/adtag.txt" || true
+    printf '%s' "$DOMAIN" > "$INSTALL_DIR/tls_domain.txt"
 
     # Build service with current clients
     local SECRETS=""
@@ -172,12 +244,17 @@ try:
 except: pass
 " 2>/dev/null || true)
     fi
-    if [[ -z "$SECRETS" && -f "$INSTALL_DIR/secret.txt" ]]; then
+    # Fall back to the legacy single secret only before clients.json exists;
+    # otherwise an all-disabled client list would bring the old secret back.
+    if [[ -z "$SECRETS" && ! -f "$INSTALL_DIR/clients.json" && -f "$INSTALL_DIR/secret.txt" ]]; then
         SECRETS="-S $(cat $INSTALL_DIR/secret.txt)"
     fi
 
     local ADTAG_ARG=""
     [[ -f "$INSTALL_DIR/adtag.txt" && -s "$INSTALL_DIR/adtag.txt" ]] && ADTAG_ARG=" -P $(cat $INSTALL_DIR/adtag.txt)"
+    # A TLS domain switches the proxy to Fake-TLS (ee) only
+    local DOMAIN_ARG=""
+    [[ -n "$DOMAIN" ]] && DOMAIN_ARG=" -D $DOMAIN"
 
     cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
@@ -188,7 +265,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$BINARY -u nobody -p 8888 -H $PORT $SECRETS$ADTAG_ARG --aes-pwd $INSTALL_DIR/proxy-secret $INSTALL_DIR/proxy-multi.conf -M 1
+ExecStart=$BINARY -u nobody -p 8888 -H $PORT $SECRETS$ADTAG_ARG$DOMAIN_ARG --aes-pwd $INSTALL_DIR/proxy-secret $INSTALL_DIR/proxy-multi.conf -M 1
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
@@ -210,8 +287,13 @@ EOF
 
     install_web
 
-    systemctl start ${SERVICE_NAME}
-    sleep 2
+    if [[ -n "$SECRETS" ]]; then
+        systemctl start ${SERVICE_NAME}
+        sleep 2
+    else
+        systemctl disable ${SERVICE_NAME} >/dev/null 2>&1 || true
+        echo -e "${YELLOW}[!] No enabled clients, so the proxy was not started. Enable one in the panel.${NC}"
+    fi
 
     local IP=$(get_public_ip)
     local SECRET=$(python3 -c "
@@ -227,12 +309,16 @@ except:
     echo -e "${GREEN}║                 Installation Complete                    ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}\n"
     echo -e "${CYAN}Web Panel:${NC}   http://${IP}:8880"
-    echo -e "${CYAN}Password:${NC}    admin"
+    echo -e "${CYAN}Password:${NC}    $(cat "$INSTALL_DIR/panel_pass.txt" 2>/dev/null || echo admin)"
     echo -e "${CYAN}Port:${NC}        $PORT"
+    [[ -n "$DOMAIN" ]] && echo -e "${CYAN}TLS domain:${NC}  $DOMAIN"
     echo ""
-    echo -e "${YELLOW}Connection links:${NC}"
-    echo "tg://proxy?server=${IP}&port=${PORT}&secret=dd${SECRET}"
-    echo "tg://proxy?server=${IP}&port=${PORT}&secret=ee${SECRET}"
+    echo -e "${YELLOW}Connection link:${NC}"
+    if [[ -n "$DOMAIN" ]]; then
+        echo "tg://proxy?server=${IP}&port=${PORT}&secret=ee${SECRET}$(printf '%s' "$DOMAIN" | xxd -p | tr -d '\n')"
+    else
+        echo "tg://proxy?server=${IP}&port=${PORT}&secret=dd${SECRET}"
+    fi
     echo ""
 }
 
@@ -244,7 +330,8 @@ if is_installed; then
     # Keep current port
     CURRENT_PORT=$(cat "$INSTALL_DIR/port.txt" 2>/dev/null || echo "443")
     CURRENT_ADTAG=$(cat "$INSTALL_DIR/adtag.txt" 2>/dev/null || echo "")
-    do_full_install "$CURRENT_PORT" "$CURRENT_ADTAG"
+    CURRENT_DOMAIN=$(cat "$INSTALL_DIR/tls_domain.txt" 2>/dev/null || echo "")
+    do_full_install "$CURRENT_PORT" "$CURRENT_ADTAG" "$CURRENT_DOMAIN"
 else
     # Fresh install
     if [[ $AUTO_MODE -eq 1 ]]; then
@@ -253,6 +340,12 @@ else
         read -p "Port [443]: " input_port
         PORT=${input_port:-443}
         read -p "AD Tag (optional): " ADTAG
-        do_full_install "$PORT" "$ADTAG"
+        read -p "Fake-TLS domain (optional, e.g. www.cloudflare.com): " DOMAIN
+        DOMAIN=$(echo "$DOMAIN" | tr 'A-Z' 'a-z' | tr -d ' ')
+        if [[ -n "$DOMAIN" && ! "$DOMAIN" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]]; then
+            echo -e "${YELLOW}[!] Invalid domain, Fake-TLS disabled${NC}"
+            DOMAIN=""
+        fi
+        do_full_install "$PORT" "$ADTAG" "$DOMAIN"
     fi
 fi

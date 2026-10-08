@@ -3,6 +3,7 @@
 # by @ali_sudo_of
 
 import os
+import re
 import json
 import subprocess
 import secrets
@@ -21,7 +22,9 @@ CLIENTS_FILE = f"{INSTALL_DIR}/clients.json"       # multi clients
 PORT_FILE = f"{INSTALL_DIR}/port.txt"
 ADTAG_FILE = f"{INSTALL_DIR}/adtag.txt"
 PANEL_PASS_FILE = f"{INSTALL_DIR}/panel_pass.txt"
+TLS_DOMAIN_FILE = f"{INSTALL_DIR}/tls_domain.txt"  # set => Fake-TLS (ee) mode
 SERVICE = "mtproxy"
+DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 def get_panel_password():
     if os.path.exists(PANEL_PASS_FILE):
@@ -51,7 +54,8 @@ def get_status():
     if not is_installed():
         return "not_installed"
     ok, out = run_cmd(f"systemctl is-active {SERVICE}")
-    return "active" if "active" in out.strip() else "inactive"
+    # "inactive" contains "active", so compare the whole word
+    return "active" if out.strip() == "active" else "inactive"
 
 def get_port():
     if os.path.exists(PORT_FILE):
@@ -63,9 +67,26 @@ def get_adtag():
         return open(ADTAG_FILE).read().strip()
     return ""
 
+def get_tls_domain():
+    if os.path.exists(TLS_DOMAIN_FILE):
+        return open(TLS_DOMAIN_FILE).read().strip()
+    return ""
+
+def link_context():
+    """Values every page needs to build connection links."""
+    domain = get_tls_domain()
+    return {"ip": get_public_ip(), "port": get_port(), "tls_domain": domain, "tls_hex": domain.encode().hex()}
+
+_ip_cache = {"ip": "", "until": 0}
+
 def get_public_ip():
+    # Looking the IP up on every page load made each page wait for the lookup
+    if time.time() < _ip_cache["until"]:
+        return _ip_cache["ip"]
     ok, out = run_cmd("curl -s --max-time 4 https://api.ipify.org || curl -s --max-time 4 https://ifconfig.me || echo ''")
-    return out.strip() if ok else ""
+    ip = out.strip() if ok else ""
+    _ip_cache.update(ip=ip, until=time.time() + (3600 if ip else 300))
+    return ip
 
 def load_clients():
     if os.path.exists(CLIENTS_FILE):
@@ -92,12 +113,14 @@ def rebuild_service():
     """Rebuild systemd unit with all enabled secrets + adtag"""
     port = get_port()
     adtag = get_adtag()
+    domain = get_tls_domain()
     clients = [c for c in load_clients() if c.get("enabled", True)]
     if not clients:
-        return False, "No clients"
+        return False, "No enabled clients"
 
     secrets_args = " ".join([f"-S {c['secret']}" for c in clients])
     adtag_arg = f" -P {adtag}" if adtag else ""
+    domain_arg = f" -D {domain}" if domain else ""
 
     content = f"""[Unit]
 Description=Telegram MTProxy
@@ -107,7 +130,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory={INSTALL_DIR}
-ExecStart={BINARY} -u nobody -p 8888 -H {port} {secrets_args}{adtag_arg} --aes-pwd {INSTALL_DIR}/proxy-secret {INSTALL_DIR}/proxy-multi.conf -M 1
+ExecStart={BINARY} -u nobody -p 8888 -H {port} {secrets_args}{adtag_arg}{domain_arg} --aes-pwd {INSTALL_DIR}/proxy-secret {INSTALL_DIR}/proxy-multi.conf -M 1
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65535
@@ -122,6 +145,16 @@ WantedBy=multi-user.target
     run_cmd("systemctl daemon-reload")
     run_cmd(f"systemctl enable {SERVICE}")
     return True, "ok"
+
+def apply_service():
+    """Rewrite the unit and restart. With no enabled client the old unit would
+    keep serving the disabled secrets, so stop the proxy instead."""
+    ok, _ = rebuild_service()
+    if ok:
+        run_cmd(f"systemctl restart {SERVICE}")
+        return True
+    run_cmd(f"systemctl stop {SERVICE}")
+    return False
 
 # ==================== TEMPLATES ====================
 
@@ -718,9 +751,12 @@ def _page(title, body):
         html = html.replace(f"%%{name}%%", svg)
     return html
 
-LINK_DD = "tg://proxy?server={{ ip }}&port={{ port }}&secret=dd{{ c.secret }}"
-LINK_EE = "tg://proxy?server={{ ip }}&port={{ port }}&secret=ee{{ c.secret }}"
-LINK_SHARE = "https://t.me/proxy?server={{ ip }}&port={{ port }}&secret=dd{{ c.secret }}"
+# With a TLS domain the proxy runs with -D and only accepts Fake-TLS clients, whose
+# secret is "ee" + secret + hex(domain); without one it serves "dd" (random padding).
+LINK_SECRET = "{% set sec = ('ee' ~ c.secret ~ tls_hex) if tls_domain else ('dd' ~ c.secret) %}"
+LINK_LABEL = "{{ 'Fake TLS (ee)' if tls_domain else 'Secure (dd)' }}"
+LINK_TG = "tg://proxy?server={{ ip }}&port={{ port }}&secret={{ sec }}"
+LINK_SHARE = "https://t.me/proxy?server={{ ip }}&port={{ port }}&secret={{ sec }}"
 
 LOGIN_HTML = _page("Sign in · MTProxy", """
 <main class="auth">
@@ -818,11 +854,11 @@ DASHBOARD_HTML = _page("MTProxy Panel", NAV + TOASTS + """
     </div>
 
     <div class="col">
-      {% if clients %}{% set c = clients[0] %}
+      {% if clients %}{% set c = clients[0] %}""" + LINK_SECRET + """
       <section class="card">
         <div class="card-head"><div><h2>Quick Connect</h2><p class="card-sub">{{ c.name }} · tap a link to copy it</p></div></div>
-        """ + _copy_row("Simple (dd)", LINK_DD) + _copy_row("Fake TLS (ee)", LINK_EE) + """
-        <div class="stack"><a class="btn btn-primary btn-lg" href=\"""" + LINK_DD + """\">%%send%%Open in Telegram</a></div>
+        """ + _copy_row(LINK_LABEL, LINK_TG) + _copy_row("Share link", LINK_SHARE) + """
+        <div class="stack"><a class="btn btn-primary btn-lg" href=\"""" + LINK_TG + """\">%%send%%Open in Telegram</a></div>
       </section>
       {% endif %}
 
@@ -834,6 +870,9 @@ DASHBOARD_HTML = _page("MTProxy Panel", NAV + TOASTS + """
           <label class="field"><span class="field-label">AD Tag</span>
             <input class="input mono" type="text" name="adtag" value="{{ adtag }}" placeholder="Optional 32-char tag" autocomplete="off" spellcheck="false">
             <span class="hint">Sponsor channel tag from @MTProxybot.</span></label>
+          <label class="field"><span class="field-label">Fake-TLS domain</span>
+            <input class="input mono" type="text" name="tls_domain" value="{{ tls_domain }}" placeholder="Optional, e.g. www.cloudflare.com" autocomplete="off" spellcheck="false" autocapitalize="off">
+            <span class="hint">Makes traffic look like HTTPS to this site. When set, only ee links work.</span></label>
           <button class="btn btn-primary btn-block" type="submit">Save &amp; Apply</button>
         </form>
       </section>
@@ -861,7 +900,7 @@ DASHBOARD_HTML = _page("MTProxy Panel", NAV + TOASTS + """
 """)
 
 CLIENT_HTML = _page("{{ client.name }} · MTProxy", NAV_BACK + TOASTS + """
-{% set c = client %}
+{% set c = client %}""" + LINK_SECRET + """
 <main class="page">
   <header class="profile">
     <span class="avatar" style="--h: {{ ((c.id[:2]|int(0, 16)) * 1.41)|round|int }}">{{ c.name[:1]|upper }}</span>
@@ -875,8 +914,8 @@ CLIENT_HTML = _page("{{ client.name }} · MTProxy", NAV_BACK + TOASTS + """
     <div class="col">
       <section class="card">
         <div class="card-head"><div><h2>Connection Links</h2><p class="card-sub">Tap a link to copy it.</p></div></div>
-        """ + _copy_row("Simple (dd)", LINK_DD) + _copy_row("Fake TLS (ee)", LINK_EE) + _copy_row("Share link", LINK_SHARE) + """
-        <div class="stack"><a class="btn btn-primary btn-lg" href=\"""" + LINK_DD + """\">%%send%%Open in Telegram</a></div>
+        """ + _copy_row(LINK_LABEL, LINK_TG) + _copy_row("Share link", LINK_SHARE) + """
+        <div class="stack"><a class="btn btn-primary btn-lg" href=\"""" + LINK_TG + """\">%%send%%Open in Telegram</a></div>
       </section>
       <section class="card">
         <div class="card-head"><div><h2>Secret</h2></div></div>
@@ -950,16 +989,17 @@ def logout():
 def dashboard():
     return render_template_string(DASHBOARD_HTML,
         status=get_status(),
-        ip=get_public_ip(),
-        port=get_port(),
         adtag=get_adtag(),
-        clients=load_clients()
+        clients=load_clients(),
+        **link_context()
     )
 
 @app.route("/action/<act>", methods=["POST"])
 @login_required
 def action(act):
-    if act == "start":
+    if act in ("start", "restart") and not any(c.get("enabled", True) for c in load_clients()):
+        flash("Enable a client first", "error")
+    elif act == "start":
         ok, msg = run_cmd(f"systemctl start {SERVICE}")
         flash("Started" if ok else msg, "success" if ok else "error")
     elif act == "stop":
@@ -969,9 +1009,10 @@ def action(act):
         ok, msg = run_cmd(f"systemctl restart {SERVICE}")
         flash("Restarted" if ok else msg, "success" if ok else "error")
     elif act == "uninstall":
-        run_cmd(f"systemctl stop {SERVICE} mtproxy-web")
-        run_cmd(f"systemctl disable {SERVICE} mtproxy-web")
-        run_cmd(f"rm -f /etc/systemd/system/{SERVICE}.service /etc/systemd/system/mtproxy-web.service")
+        run_cmd(f"systemctl stop {SERVICE} mtproxy-web mtproxy-config.timer")
+        run_cmd(f"systemctl disable {SERVICE} mtproxy-web mtproxy-config.timer")
+        run_cmd(f"rm -f /etc/systemd/system/{SERVICE}.service /etc/systemd/system/mtproxy-web.service"
+                " /etc/systemd/system/mtproxy-config.service /etc/systemd/system/mtproxy-config.timer")
         run_cmd("systemctl daemon-reload")
         run_cmd(f"rm -rf {INSTALL_DIR} /opt/mtproxy-panel")
         run_cmd("userdel mtproxy 2>/dev/null || true")
@@ -983,14 +1024,20 @@ def action(act):
 def save_settings():
     port = request.form.get("port", "443").strip()
     adtag = request.form.get("adtag", "").strip()
+    domain = request.form.get("tls_domain", "").strip().lower()
     if not port.isdigit() or not (1 <= int(port) <= 65535):
         flash("Invalid port", "error")
         return redirect(url_for("dashboard"))
+    if domain and not DOMAIN_RE.match(domain):
+        flash("Invalid TLS domain", "error")
+        return redirect(url_for("dashboard"))
     open(PORT_FILE, "w").write(port)
     open(ADTAG_FILE, "w").write(adtag)
-    ok, _ = rebuild_service()
-    run_cmd(f"systemctl restart {SERVICE}")
-    flash("Settings applied", "success" if ok else "error")
+    open(TLS_DOMAIN_FILE, "w").write(domain)
+    if apply_service():
+        flash("Settings applied", "success")
+    else:
+        flash("Settings saved. No enabled clients, so the proxy is stopped", "info")
     return redirect(url_for("dashboard"))
 
 @app.route("/password", methods=["POST"])
@@ -1025,8 +1072,7 @@ def add_client():
             "created": datetime.now().isoformat()
         })
         save_clients(clients)
-        rebuild_service()
-        run_cmd(f"systemctl restart {SERVICE}")
+        apply_service()
         flash(f"Client '{name}' created", "success")
         return redirect(url_for("client_detail", cid=cid))
     return render_template_string(ADD_CLIENT_HTML)
@@ -1044,23 +1090,24 @@ def client_detail(cid):
         if request.form.get("delete"):
             clients = [c for c in clients if c["id"] != cid]
             save_clients(clients)
-            rebuild_service()
-            run_cmd(f"systemctl restart {SERVICE}")
-            flash("Client deleted", "success")
+            if apply_service():
+                flash("Client deleted", "success")
+            else:
+                flash("Client deleted. No enabled clients left, so the proxy is stopped", "info")
             return redirect(url_for("dashboard"))
 
         client["name"] = request.form.get("name", client["name"]).strip()
         client["enabled"] = request.form.get("enabled") == "1"
         save_clients(clients)
-        rebuild_service()
-        run_cmd(f"systemctl restart {SERVICE}")
-        flash("Client updated", "success")
+        if apply_service():
+            flash("Client updated", "success")
+        else:
+            flash("Client updated. No enabled clients left, so the proxy is stopped", "info")
         return redirect(url_for("client_detail", cid=cid))
 
     return render_template_string(CLIENT_HTML,
         client=client,
-        ip=get_public_ip(),
-        port=get_port()
+        **link_context()
     )
 
 if __name__ == "__main__":
