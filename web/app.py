@@ -127,17 +127,41 @@ WantedBy=multi-user.target
 
 BASE_CSS = """
 :root {
+  color-scheme: dark;
   --bg: #0b0b0f;
   --card: #14141c;
+  --inset: #0e0e14;
+  --ghost: #1e1e28;
   --border: #252532;
   --text: #e8e8f0;
   --muted: #8b8b9e;
   --primary: #6c5ce7;
   --primary-hover: #7f71f0;
+  --link: #a29bfe;
   --success: #00b894;
   --danger: #ff6b6b;
   --warning: #fdcb6e;
+  --header-bg: rgba(20, 20, 28, 0.72);
   --radius: 14px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --inset: #f0f0f4;
+    --ghost: #e8e8ee;
+    --border: #e2e2ea;
+    --text: #1d1d1f;
+    --muted: #6e6e7a;
+    --primary: #5b4bd6;
+    --primary-hover: #4a3bc4;
+    --link: #5b4bd6;
+    --success: #00875f;
+    --danger: #d63c3c;
+    --warning: #9a6a00;
+    --header-bg: rgba(255, 255, 255, 0.72);
+  }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -146,11 +170,17 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   min-height: 100vh;
   line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
 }
 a { color: inherit; text-decoration: none; }
+h1 { letter-spacing: -0.02em; line-height: 1.2; }
+h2 { letter-spacing: -0.01em; line-height: 1.3; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .container { max-width: 960px; margin: 0 auto; padding: 16px; }
 .header {
-  background: var(--card);
+  background: var(--header-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
   border-bottom: 1px solid var(--border);
   padding: 14px 20px;
   display: flex;
@@ -162,6 +192,8 @@ a { color: inherit; text-decoration: none; }
 }
 .header h1 { font-size: 1.15rem; font-weight: 700; }
 .header .sub { font-size: 0.75rem; color: var(--muted); }
+.header a { padding: 8px 4px; transition: color 150ms ease; }
+@media (hover: hover) { .header a:hover { color: var(--text) !important; } }
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -185,7 +217,7 @@ a { color: inherit; text-decoration: none; }
 .badge.not_installed { background: rgba(253,203,110,0.15); color: var(--warning); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .info-box {
-  background: #0e0e14;
+  background: var(--inset);
   border-radius: 10px;
   padding: 12px;
 }
@@ -202,15 +234,16 @@ a { color: inherit; text-decoration: none; }
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
-  transition: 0.15s;
+  touch-action: manipulation;
+  transition: transform 100ms ease-out, background-color 150ms ease;
 }
 .btn:active { transform: scale(0.97); }
 .btn-primary { background: var(--primary); color: #fff; }
-.btn-primary:hover { background: var(--primary-hover); }
+@media (hover: hover) { .btn-primary:hover { background: var(--primary-hover); } }
 .btn-success { background: rgba(0,184,148,0.2); color: var(--success); }
 .btn-danger { background: rgba(255,107,107,0.2); color: var(--danger); }
 .btn-warning { background: rgba(253,203,110,0.2); color: var(--warning); }
-.btn-ghost { background: #1e1e28; color: var(--muted); }
+.btn-ghost { background: var(--ghost); color: var(--muted); }
 .btn-block { width: 100%; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 input, select, textarea {
@@ -218,9 +251,10 @@ input, select, textarea {
   padding: 11px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #0e0e14;
+  background: var(--inset);
   color: var(--text);
-  font-size: 0.9rem;
+  font-size: 1rem;
+  transition: border-color 150ms ease;
 }
 input:focus, select:focus { outline: none; border-color: var(--primary); }
 .form-group { margin-bottom: 12px; }
@@ -239,16 +273,28 @@ input:focus, select:focus { outline: none; border-color: var(--primary); }
 .table td { padding: 12px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .table tr:last-child td { border-bottom: none; }
 .link-box {
-  background: #0e0e14;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: var(--inset);
   border-radius: 10px;
   padding: 12px;
   margin-bottom: 10px;
   font-family: ui-monospace, monospace;
   font-size: 0.8rem;
   word-break: break-all;
-  color: #a29bfe;
+  color: var(--link);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 100ms ease-out, border-color 150ms ease;
 }
-.link-box label { display: block; color: var(--muted); font-size: 0.7rem; margin-bottom: 4px; font-family: system-ui; }
+.link-box:active { transform: scale(0.99); }
+@media (hover: hover) { .link-box:hover { border-color: var(--border); } }
+.link-box .link-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.7rem; margin-bottom: 4px; font-family: system-ui; cursor: inherit; }
+.link-box .copy-hint { color: var(--muted); }
+.link-box.copied { border-color: var(--success); }
+.link-box.copied .copy-hint { color: var(--success); }
 .mobile-nav { display: none; }
 @media (max-width: 640px) {
   .header h1 { font-size: 1rem; }
@@ -259,6 +305,52 @@ input:focus, select:focus { outline: none; border-color: var(--primary); }
   .table { font-size: 0.8rem; }
   .hide-mobile { display: none; }
 }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .btn:active, .link-box:active { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .header { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --border: #6e6e80; --muted: #b4b4c4; }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: light) {
+  :root { --border: #8a8a96; --muted: #4a4a55; }
+}
+"""
+
+COPY_JS = """
+<script>
+document.addEventListener('click', function (e) {
+  var box = e.target.closest('.link-box');
+  if (!box) return;
+  var text = box.querySelector('.link-text').textContent.trim();
+  var done = function () {
+    var hint = box.querySelector('.copy-hint');
+    box.classList.add('copied');
+    hint.textContent = 'Copied';
+    clearTimeout(box._t);
+    box._t = setTimeout(function () {
+      box.classList.remove('copied');
+      hint.textContent = 'Tap to copy';
+    }, 1500);
+  };
+  // The panel is usually served over plain http, where navigator.clipboard is unavailable.
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    if (document.execCommand('copy')) done();
+    document.body.removeChild(ta);
+  }
+});
+</script>
 """
 
 LOGIN_HTML = f"""
@@ -295,7 +387,7 @@ DASHBOARD_HTML = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MTProxy Panel</title>
 <style>{BASE_CSS}</style>
 </head>
@@ -351,7 +443,7 @@ DASHBOARD_HTML = f"""
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <h2 style="margin:0">Clients</h2>
-      <a href="{{{{ url_for('add_client') }}}}" class="btn btn-primary" style="padding:8px 14px;font-size:0.8rem">+ New Client</a>
+      <a href="{{{{ url_for('add_client') }}}}" class="btn btn-primary" style="padding:8px 14px;font-size:0.8rem;width:auto">+ New Client</a>
     </div>
 
     {{% if clients %}}
@@ -395,14 +487,14 @@ DASHBOARD_HTML = f"""
   <div class="card">
     <h2>Quick Links (first client)</h2>
     {{% set c = clients[0] %}}
-    <div class="link-box">
-      <label>Simple (dd)</label>
-      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ c.secret }}}}
-    </div>
-    <div class="link-box">
-      <label>Fake TLS (ee)</label>
-      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ c.secret }}}}
-    </div>
+    <button type="button" class="link-box">
+      <span class="link-label">Simple (dd) <span class="copy-hint">Tap to copy</span></span>
+      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ c.secret }}}}</span>
+    </button>
+    <button type="button" class="link-box">
+      <span class="link-label">Fake TLS (ee) <span class="copy-hint">Tap to copy</span></span>
+      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ c.secret }}}}</span>
+    </button>
   </div>
   {{% endif %}}
 
@@ -444,12 +536,13 @@ DASHBOARD_HTML = f"""
   <div class="card">
     <h2>Not Installed</h2>
     <p style="color:var(--muted);margin-bottom:16px">Run the install script on the server first.</p>
-    <code style="display:block;background:#0e0e14;padding:12px;border-radius:10px;font-size:0.8rem">
+    <code style="display:block;background:var(--inset);padding:12px;border-radius:10px;font-size:0.8rem">
 bash &lt;(curl -sL https://raw.githubusercontent.com/aliisudo/mtproxy-panel/main/install.sh)
     </code>
   </div>
   {{% endif %}}
 </div>
+{COPY_JS}
 </body>
 </html>
 """
@@ -479,18 +572,18 @@ CLIENT_HTML = f"""
       <label>Secret</label>
       <div class="val">{{{{ client.secret }}}}</div>
     </div>
-    <div class="link-box">
-      <label>Simple (dd)</label>
-      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}
-    </div>
-    <div class="link-box">
-      <label>Fake TLS (ee)</label>
-      tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ client.secret }}}}
-    </div>
-    <div class="link-box">
-      <label>Share Link</label>
-      https://t.me/proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}
-    </div>
+    <button type="button" class="link-box">
+      <span class="link-label">Simple (dd) <span class="copy-hint">Tap to copy</span></span>
+      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}</span>
+    </button>
+    <button type="button" class="link-box">
+      <span class="link-label">Fake TLS (ee) <span class="copy-hint">Tap to copy</span></span>
+      <span class="link-text">tg://proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=ee{{{{ client.secret }}}}</span>
+    </button>
+    <button type="button" class="link-box">
+      <span class="link-label">Share Link <span class="copy-hint">Tap to copy</span></span>
+      <span class="link-text">https://t.me/proxy?server={{{{ ip }}}}&port={{{{ port }}}}&secret=dd{{{{ client.secret }}}}</span>
+    </button>
   </div>
 
   <div class="card">
@@ -514,6 +607,7 @@ CLIENT_HTML = f"""
     </form>
   </div>
 </div>
+{COPY_JS}
 </body>
 </html>
 """
