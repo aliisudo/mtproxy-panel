@@ -154,6 +154,8 @@ ICONS = {
 CSS = """
 :root {
   color-scheme: light dark;
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --bg: #f2f2f7;
@@ -231,8 +233,11 @@ svg { display: block; flex: none; }
   background: var(--nav);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
-  box-shadow: 0 0.5px 0 var(--separator);
+  box-shadow: 0 0.5px 0 transparent;
+  transition: box-shadow 250ms ease, background-color 250ms ease;
 }
+/* Scroll edge: the divider only appears once content slides under the bar */
+.nav.scrolled { box-shadow: 0 0.5px 0 var(--separator), 0 8px 24px -12px rgba(0, 0, 0, 0.25); }
 .nav-inner {
   max-width: 1080px; margin: 0 auto; height: 56px; padding: 0 16px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -305,9 +310,11 @@ h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01
   height: 40px; padding: 0 16px; border: 0; border-radius: 999px;
   font-size: 15px; font-weight: 600; white-space: nowrap; cursor: pointer;
   user-select: none; -webkit-user-select: none; touch-action: manipulation;
-  transition: transform 100ms ease-out, background-color 150ms ease, opacity 150ms ease;
+  position: relative;
+  transition: transform 450ms var(--spring), background-color 150ms ease, opacity 150ms ease, box-shadow 250ms ease;
 }
-.btn:active { transform: scale(0.96); }
+.btn:active { transform: scale(0.95); transition-duration: 90ms, 150ms, 150ms, 250ms; transition-timing-function: ease-out; }
+.btn-primary { box-shadow: 0 4px 14px -4px var(--accent); }
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-tinted { background: var(--accent-tint); color: var(--accent); }
 .btn-green { background: var(--green-tint); color: var(--green); }
@@ -331,7 +338,7 @@ h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01
   display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 14px;
   transition: background-color 150ms ease, transform 100ms ease-out;
 }
-.row:active { background: var(--fill); transform: scale(0.99); }
+.row:active { background: var(--fill); transform: scale(0.985); transition-duration: 90ms; }
 @media (hover: hover) { .row:hover { background: var(--fill); } }
 .avatar {
   width: 42px; height: 42px; border-radius: 50%; flex: none;
@@ -362,7 +369,7 @@ h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01
   transition: transform 100ms ease-out, background-color 150ms ease;
 }
 .copy + .copy { margin-top: 8px; }
-.copy:active { transform: scale(0.985); }
+.copy:active { transform: scale(0.975); transition-duration: 90ms; }
 .copy-main { flex: 1; min-width: 0; }
 .copy-label { display: block; font-size: 13px; font-weight: 600; }
 .copy-text {
@@ -401,12 +408,15 @@ h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01
 .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
 .switch .track { position: absolute; inset: 0; border-radius: 999px; background: var(--fill-2); transition: background-color 200ms ease; }
 .switch .thumb {
-  position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff;
+  position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 999px; background: #fff;
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
-  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 400ms var(--spring), width 250ms var(--ease-out);
 }
 .switch input:checked ~ .track { background: var(--switch-on); }
 .switch input:checked ~ .thumb { transform: translateX(20px); }
+/* Like iOS, the thumb stretches toward its destination while pressed */
+.switch input:active ~ .thumb { width: 33px; }
+.switch input:checked:active ~ .thumb { transform: translateX(14px); }
 .switch input:focus-visible ~ .track { box-shadow: 0 0 0 4px var(--accent-tint); }
 
 /* Toasts enter and leave along the same path */
@@ -436,10 +446,7 @@ h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01
 .narrow { max-width: 520px; }
 
 /* Sign in */
-.auth {
-  min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
-  background: radial-gradient(70% 45% at 50% 0%, var(--accent-tint), transparent 70%), var(--bg);
-}
+.auth { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
 .auth-card { width: 100%; max-width: 380px; text-align: center; }
 .auth .logo { width: 68px; height: 68px; border-radius: 20px; margin: 0 auto 20px; }
 .auth h1 { font-size: 30px; }
@@ -459,6 +466,83 @@ h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01
 }
 @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
 
+/* ---------- Motion ---------- */
+/* Ambient light that drifts very slowly behind everything */
+body::before {
+  content: ""; position: fixed; inset: -25%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(32% 28% at 18% 12%, var(--glow-1), transparent 70%),
+    radial-gradient(30% 26% at 85% 18%, var(--glow-2), transparent 70%),
+    radial-gradient(36% 32% at 55% 92%, var(--glow-3), transparent 70%);
+  animation: drift 48s ease-in-out infinite alternate;
+}
+@keyframes drift {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(3%, 2%, 0) rotate(6deg); }
+  100% { transform: translate3d(-3%, 3%, 0) rotate(-4deg); }
+}
+:root { --glow-1: rgba(88, 86, 214, 0.16); --glow-2: rgba(10, 132, 255, 0.12); --glow-3: rgba(52, 199, 89, 0.08); }
+@media (prefers-color-scheme: dark) {
+  :root { --glow-1: rgba(125, 122, 255, 0.22); --glow-2: rgba(10, 132, 255, 0.14); --glow-3: rgba(48, 209, 88, 0.08); }
+}
+
+/* Content rises into place, one surface after another */
+.reveal { animation: rise 700ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 70ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(18px) scale(0.985); } }
+
+/* Surfaces respond to the pointer with a soft spotlight */
+.card, .copy { isolation: isolate; }
+.card { position: relative; transition: transform 500ms var(--ease-out), box-shadow 500ms var(--ease-out); }
+.card::after, .copy::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; pointer-events: none;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 50%), var(--accent-tint), transparent 45%);
+  opacity: 0; transition: opacity 300ms ease;
+}
+.copy { position: relative; }
+@media (hover: hover) {
+  .card:hover::after, .copy:hover::after { opacity: 1; }
+  .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+  .row:hover .chev { transform: translateX(3px); color: var(--text-2); }
+  .row:hover .avatar { transform: scale(1.06); }
+  .btn-primary:hover { box-shadow: 0 8px 22px -6px var(--accent); transform: translateY(-1px); }
+}
+:root { --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.04), 0 18px 40px -12px rgba(0, 0, 0, 0.14); }
+@media (prefers-color-scheme: dark) { :root { --shadow-lift: 0 18px 40px -16px rgba(0, 0, 0, 0.8); } }
+.chev, .avatar { transition: transform 400ms var(--spring), color 200ms ease; }
+
+/* Running status: the whole hero breathes gently */
+.hero--active { box-shadow: var(--shadow), 0 0 0 1px var(--green-tint), 0 0 40px -10px var(--green-tint); }
+
+/* Copy: a little pop when it lands */
+.copy.copied { animation: pop 450ms var(--spring); }
+@keyframes pop { 40% { transform: scale(1.025); } }
+
+/* Logo catches the light */
+.logo { position: relative; overflow: hidden; }
+.logo::after {
+  content: ""; position: absolute; inset: -50%;
+  background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, 0.55) 50%, transparent 60%);
+  transform: translateX(-100%); animation: shine 1.4s 0.3s var(--ease-out) both;
+}
+@keyframes shine { to { transform: translateX(100%); } }
+.auth .logo { animation: float 6s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-6px); } }
+
+/* Submitting: the pressed button turns into a spinner */
+.btn.loading { pointer-events: none; color: transparent !important; }
+.btn.loading::before {
+  content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%;
+  border: 2.5px solid var(--spin, #fff); border-right-color: transparent;
+  animation: spin 700ms linear infinite;
+}
+.btn-tinted, .btn-gray { --spin: var(--text); }
+.btn-green { --spin: var(--green); }
+.btn-red { --spin: var(--red); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Numbers settle with a tiny lift as they count up */
+.stat-value[data-count] { display: inline-block; }
+
 @media (max-width: 420px) {
   h1 { font-size: 30px; }
   .card { padding: 18px 16px; border-radius: 20px; }
@@ -468,6 +552,8 @@ h2 { font-size: 20px; line-height: 1.25; font-weight: 650; letter-spacing: -0.01
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .status--active .dot::after { display: none; }
   .btn:active, .row:active, .copy:active { transform: none; }
+  body::before, .auth .logo, .logo::after { animation: none !important; }
+  .card:hover, .btn-primary:hover { transform: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .nav { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -529,6 +615,54 @@ JS = """
       eye.setAttribute('aria-pressed', show ? 'true' : 'false');
     }
   });
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Stagger surfaces in on load
+  document.querySelectorAll('.page-head, .profile, .card, .auth-card').forEach(function (el, i) {
+    el.classList.add('reveal');
+    el.style.setProperty('--i', i);
+  });
+
+  // Count numbers up from zero
+  if (!reduce) {
+    document.querySelectorAll('[data-count]').forEach(function (el) {
+      var end = parseInt(el.getAttribute('data-count'), 10) || 0, start = performance.now(), dur = 900;
+      (function tick(now) {
+        var t = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - t, 4);
+        el.textContent = Math.round(end * e);
+        if (t < 1) requestAnimationFrame(tick);
+      })(start);
+    });
+  }
+
+  // Spotlight follows the pointer across cards and links
+  document.addEventListener('pointermove', function (e) {
+    var el = e.target.closest && e.target.closest('.card, .copy');
+    if (!el) return;
+    var r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+    el.style.setProperty('--my', (e.clientY - r.top) + 'px');
+  }, { passive: true });
+
+  // Divider under the nav only once content scrolls beneath it
+  var nav = document.querySelector('.nav');
+  if (nav) {
+    var onScroll = function () { nav.classList.toggle('scrolled', window.scrollY > 4); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  }
+
+  // The pressed submit button shows progress until the next page arrives
+  document.addEventListener('submit', function (e) {
+    if (e.defaultPrevented) return;
+    var btn = e.submitter || e.target.querySelector('button[type=submit]');
+    if (btn) btn.classList.add('loading');
+  });
+  // Coming back via the back button restores pages from cache: clear spinners
+  window.addEventListener('pageshow', function () {
+    document.querySelectorAll('.btn.loading').forEach(function (b) { b.classList.remove('loading'); });
+  });
+
   document.querySelectorAll('.toast').forEach(function (t, i) {
     setTimeout(function () { dismiss(t); }, 3500 + i * 400);
   });
@@ -627,7 +761,7 @@ DASHBOARD_HTML = _page("MTProxy Panel", NAV + TOASTS + """
   {% else %}
   <div class="layout">
     <div class="col">
-      <section class="card">
+      <section class="card{% if status == 'active' %} hero--active{% endif %}">
         <div class="hero-top">
           <span class="status status--{{ status }}"><span class="dot"></span>{{ 'Running' if status == 'active' else 'Stopped' }}</span>
           <div class="hero-actions">
@@ -644,8 +778,9 @@ DASHBOARD_HTML = _page("MTProxy Panel", NAV + TOASTS + """
           <div class="address-value">{{ ip or 'Unknown IP' }}<span class="port">:{{ port }}</span></div>
         </div>
         <div class="stats">
-          <div class="stat"><span class="label">Clients</span><div class="stat-value">{{ clients|length }}</div></div>
-          <div class="stat"><span class="label">Enabled</span><div class="stat-value">{{ clients|selectattr('enabled')|list|length }}</div></div>
+          <div class="stat"><span class="label">Clients</span><div class="stat-value" data-count="{{ clients|length }}">{{ clients|length }}</div></div>
+          {% set enabled_count = clients|selectattr('enabled')|list|length %}
+          <div class="stat"><span class="label">Enabled</span><div class="stat-value" data-count="{{ enabled_count }}">{{ enabled_count }}</div></div>
           <div class="stat"><span class="label">Port</span><div class="stat-value">{{ port }}</div></div>
           <div class="stat"><span class="label">AD Tag</span>
             {% if adtag %}<div class="stat-value small" title="{{ adtag }}">{{ adtag[:8] }}…</div>{% else %}<div class="stat-value small none">Not set</div>{% endif %}
